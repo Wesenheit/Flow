@@ -36,3 +36,41 @@ function PtoU(P::ParVector1D,U::ParVector1D,eos::EOS)
         U.arr3[i] = (P.arr2[i] + pressure + P.arr1[i])*gamma^2*P.arr3[1]
     end
 end
+
+
+
+function F(x::Vector{Float64})
+    return [
+        x[1]^2 + x[2]^2 - 10,
+        x[1] * x[2] + x[2] - 5
+    ]
+end
+
+
+function J(x::Vector{Float64})
+    return [
+        2*x[1]   2*x[2];
+        x[2]     x[1] + 1
+    ]
+end
+
+
+function newton_raphson(initial_guess::Vector{Float64}, tol=1e-10, max_iter=100)
+    x = initial_guess
+    for i in 1:max_iter
+        fx = F(x)
+        jx = J(x)
+
+        if any(isnan.(fx)) || any(isinf.(fx)) || any(isnan.(jx)) || any(isinf.(jx))
+            error("NaN or Inf. The program has stopped.")
+        end
+
+        delta = jx \ -fx
+
+        x += delta
+
+        if norm(delta) < tol
+            return x
+        end
+    end
+end
