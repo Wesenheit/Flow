@@ -6,6 +6,6 @@ struct Polytrope <:EOS
     gamma::Float64
 end
 
-function Pressure(rho::Float64,eos::Polytrope)::Float64
-    return power(rho,eos.gamma)
+function Pressure(u::Float64,eos::Polytrope)::Float64
+    return (eos.gamma-1)*u
 end
