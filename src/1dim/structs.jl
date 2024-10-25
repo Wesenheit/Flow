@@ -29,13 +29,13 @@ function Jacobian(x::MVector{3,Float64},buffer::MMatrix{3,3,Float64},eos::Polytr
     gam::Float64 = sqrt(1+x[3]^2) ### gamma factor
     w::Float64 = eos.gamma * x[2] + x[1] ### enthalpy w = p + u + rho
     buffer[1,1] = gam
-    buffer[2,1] = 0
-    buffer[3,1] = x[1] * x[3] / gam
-    buffer[1,2] =  gam^2
+    buffer[1,2] = 0
+    buffer[1,3] = x[1] * x[3] / gam
+    buffer[2,1] =  gam^2
     buffer[2,2] = (eos.gamma - 1) + gam ^2 * eos.gamma
-    buffer[3,2] =  2*x[2] * w
-    buffer[1,3] = -gam*x[3]
-    buffer[2,3] = -gam* x[3] * eos.gamma
+    buffer[2,3] =  2*x[3] * w
+    buffer[3,1] = -gam*x[3]
+    buffer[3,2] = -gam* x[3] * eos.gamma
     buffer[3,3] = -(2*x[3]^2+1)/gam*w
 end
 
@@ -62,7 +62,7 @@ function PtoU(P::ParVector1D,U::ParVector1D,eos::EOS)
 end
 
 
-function UtoP(U::ParVector1D,P::ParVector1D,eos::EOS,n_iter::Int64,tol::Float64=1e-10,)
+function UtoP(U::ParVector1D,P::ParVector1D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
     buff_start::MVector{3,Float64} = MVector(0.,0.,0.)
     buff_fun::MVector{3,Float64} = MVector(0.,0.,0.)
     buff_jac::MMatrix{3,3,Float64} = @MMatrix randn(3,3)
@@ -77,7 +77,11 @@ function UtoP(U::ParVector1D,P::ParVector1D,eos::EOS,n_iter::Int64,tol::Float64=
             buff_fun[1] -= U.arr1[i]
             buff_fun[2] -= U.arr2[i]
             buff_fun[3] -= U.arr3[i]
-            buff_start = buff_start .- buff_jac \ buff_fun
+            buff_fun = buff_jac \ buff_fun
+            if norm(buff_fun) < tol
+                break
+            end
+            buff_start = buff_start .- buff_fun
         end
         P.arr1[i] = buff_start[1]
         P.arr2[i] = buff_start[2]
