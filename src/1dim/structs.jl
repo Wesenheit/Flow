@@ -71,7 +71,7 @@ function PtoF(P::ParVector1D,F::ParVector1D,eos::EOS)
         gamma = sqrt(P.arr3[i]^2+1)
         pressure = Pressure(P.arr2[i],eos)
         F.arr1[i] = P.arr1[i] * P.arr3[i]
-        F.arr2[i] = (P.arr2[i] + pressure + P.arr1[i]) * gamma * P.arr3[i]
+        F.arr2[i] = -(P.arr2[i] + pressure + P.arr1[i]) * gamma * P.arr3[i]
         F.arr3[i] = pressure + (P.arr2[i] + pressure + P.arr1[i]) * P.arr3[i]^2
     end
 end
