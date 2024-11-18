@@ -1,6 +1,7 @@
 using StaticArrays
 using LinearAlgebra
-using ProgressBars
+using Base.Threads
+
 # Used scheme
 # U - conserved varaibles
 # U1 = rho ut - mass conservation
@@ -65,11 +66,9 @@ function PtoU(P::ParVector1D,U::ParVector1D,eos::EOS)
 end
 
 function PtoF(P::ParVector1D,F::ParVector1D,eos::EOS)
-    gamma::Float64 = 0
-    pressure::Float64 = 0
-    for i in 1:P.size
-        gamma = sqrt(P.arr3[i]^2+1)
-        pressure = Pressure(P.arr2[i],eos)
+    @threads for i in 1:P.size
+        gamma::Float64 = sqrt(P.arr3[i]^2+1)
+        pressure::Float64 = Pressure(P.arr2[i],eos)
         F.arr1[i] = P.arr1[i] * P.arr3[i]
         F.arr2[i] = -(P.arr2[i] + pressure + P.arr1[i]) * gamma * P.arr3[i]
         F.arr3[i] = pressure + (P.arr2[i] + pressure + P.arr1[i]) * P.arr3[i]^2
@@ -77,12 +76,11 @@ function PtoF(P::ParVector1D,F::ParVector1D,eos::EOS)
 end
 
 function UtoP(U::ParVector1D,P::ParVector1D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
-    buff_start::MVector{3,Float64} = MVector(0.,0.,0.)
-    buff_fun::MVector{3,Float64} = MVector(0.,0.,0.)
-    buff_jac::MMatrix{3,3,Float64} = @MMatrix zeros(3,3)
+    @threads for i in 1:P.size
+        buff_start::MVector{3,Float64} = MVector(0.,0.,0.)
+        buff_fun::MVector{3,Float64} = MVector(0.,0.,0.)
+        buff_jac::MMatrix{3,3,Float64} = @MMatrix zeros(3,3)
 
-    for i in 1:P.size
-        #println(i)
         buff_start[1] = P.arr1[i]
         buff_start[2] = P.arr2[i]
         buff_start[3] = P.arr3[i]
