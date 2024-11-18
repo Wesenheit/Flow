@@ -2,7 +2,7 @@ using BenchmarkTools
 using CairoMakie
 include("../../src/1dim/Flow1D.jl")
 eos = Flow1D.Polytrope(4.0/3.0)
-N = 1000
+N = 10000
 P = Flow1D.ParVector1D{Float64,N}()
 for i in 1:div(N,2)
     P.arr1[i] = 1.
@@ -16,7 +16,7 @@ end
 X = LinRange(-0.5,0.5,N) |> collect
 
 dx::Float64 = X[2]-X[1]
-dt::Float64 = 0.00003
+dt::Float64 = 0.000003
 println("Courant/c: ",dt/dx)
 T::Float64 = 0.5
 n_it::Int64 = 10.
