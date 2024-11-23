@@ -1,5 +1,6 @@
 using BenchmarkTools
 using CairoMakie
+using ThreadPinning
 include("../../src/1dim/Flow1D.jl")
 eos = Flow1D.Polytrope(4.0/3.0)
 N = 10000
@@ -22,6 +23,10 @@ T::Float64 = 0.5
 n_it::Int64 = 10.
 tol::Float64 = 1e-6
 drops::Float64 = T/3.
+
+pinthreads(:cores)
+threadinfo(;)
+
 out = Flow1D.HARM_HLL(P,N,dt,dx,T,eos,drops,Flow1D.MC,n_it,tol)
 
 

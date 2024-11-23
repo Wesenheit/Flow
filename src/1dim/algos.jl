@@ -82,7 +82,7 @@ function HARM_HLL(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64,eos
     push!(out,deepcopy(P))
     while t < T
         
-        @threads for i in 2:N-1 # interpolating left and right
+        @threads :static for i in 2:N-1 # interpolating left and right
             r1 = FluxLimiter( (P.arr1[i] - P.arr1[i-1]) / (P.arr1[i + 1] - P.arr1[i] + 1e-4))
             r2 = FluxLimiter( (P.arr2[i] - P.arr2[i-1]) / (P.arr2[i + 1] - P.arr2[i] + 1e-4))
             r3 = FluxLimiter( (P.arr3[i] - P.arr3[i-1]) / (P.arr3[i + 1] - P.arr3[i] + 1e-4))
@@ -111,7 +111,7 @@ function HARM_HLL(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64,eos
         PtoF(PR,FR,eos)
         PtoF(PL,FL,eos)
 
-        @threads for i in 1:N
+        @threads :static for i in 1:N
             vL::Float64 = PL.arr3[i] / sqrt(PL.arr3[i]^2 + 1)
             vR::Float64 = PR.arr3[i] / sqrt(PR.arr3[i]^2 + 1)
             CL::Float64 = SoundSpeed(max(PL.arr1[i],1e-4),max(PL.arr2[i],1e-4),eos)
@@ -123,14 +123,14 @@ function HARM_HLL(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64,eos
             @inbounds F.arr3[i] = ( FR.arr3[i] * C_min + FL.arr3[i] * C_max - C_max * C_min * (UR.arr3[i] - UL.arr3[i])) / (C_max + C_min)
         end
 
-        @threads for i in 2:N-2
+        @threads :static for i in 2:N-2
             @inbounds Ubuffer.arr1[i] = U.arr1[i] - dt/dx * (F.arr1[i] - F.arr1[i-1])
             @inbounds Ubuffer.arr2[i] = U.arr2[i] - dt/dx * (F.arr2[i] - F.arr2[i-1])
             @inbounds Ubuffer.arr3[i] = U.arr3[i] - dt/dx * (F.arr3[i] - F.arr3[i-1])
 
         end
 
-        @threads for i in 1:N
+        @threads :static for i in 1:N
             @inbounds U.arr1[i] = Ubuffer.arr1[i]
             @inbounds U.arr2[i] = Ubuffer.arr2[i]
             @inbounds U.arr3[i] = Ubuffer.arr3[i]

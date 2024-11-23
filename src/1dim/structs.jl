@@ -56,7 +56,7 @@ end
 function PtoU(P::ParVector1D,U::ParVector1D,eos::EOS)
     gamma::Float64 = 0
     pressure::Float64 = 0
-    for i in 1:P.size
+    @threads :static for i in 1:P.size
         gamma = sqrt(P.arr3[i]^2+1)
         pressure = Pressure(P.arr2[i],eos)
         U.arr1[i] = P.arr1[i]*gamma
@@ -66,7 +66,7 @@ function PtoU(P::ParVector1D,U::ParVector1D,eos::EOS)
 end
 
 function PtoF(P::ParVector1D,F::ParVector1D,eos::EOS)
-    @threads for i in 1:P.size
+    @threads :static for i in 1:P.size
         gamma::Float64 = sqrt(P.arr3[i]^2+1)
         pressure::Float64 = Pressure(P.arr2[i],eos)
         F.arr1[i] = P.arr1[i] * P.arr3[i]
@@ -76,7 +76,7 @@ function PtoF(P::ParVector1D,F::ParVector1D,eos::EOS)
 end
 
 function UtoP(U::ParVector1D,P::ParVector1D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
-    @threads for i in 1:P.size
+    @threads :static for i in 1:P.size
         buff_start::MVector{3,Float64} = MVector(0.,0.,0.)
         buff_fun::MVector{3,Float64} = MVector(0.,0.,0.)
         buff_jac::MMatrix{3,3,Float64} = @MMatrix zeros(3,3)
