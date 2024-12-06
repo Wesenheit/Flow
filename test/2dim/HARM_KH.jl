@@ -27,13 +27,16 @@ end
 
 dx::Float64 = 1/Nx
 dy::Float64 = 1/Ny
-dt::Float64 = dx*1e-2
+dt::Float64 = dx*0.4
 println("Courant/c: ",dt/dx)
 T::Float64 = 1.
 n_it::Int64 = 10.
 tol::Float64 = 1e-6
 drops::Float64 = T/20.
 floor::Float64 = 1e-4
+
+pinthreads(:cores)
+threadinfo(;)
 
 out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
 
