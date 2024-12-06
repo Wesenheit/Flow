@@ -35,20 +35,22 @@ function Jacobian(x::MVector{3,Float64},buffer::MMatrix{3,3,Float64},eos::Polytr
     buffer[1,1] = gam
     buffer[1,2] = 0
     buffer[1,3] = x[1] * x[3] / gam
-    buffer[2,1] =  -gam^2
+
+    buffer[2,1] =  - gam^2
     buffer[2,2] =  (eos.gamma - 1) - gam ^2 * eos.gamma
     buffer[2,3] =  -2*x[3] * w
-    buffer[3,1] = gam*x[3]
-    buffer[3,2] = gam* x[3] * eos.gamma
-    buffer[3,3] = (2*x[3]^2+1)/gam*w
+    
+    buffer[3,1] = gam * x[3]
+    buffer[3,2] = gam * x[3] * eos.gamma
+    buffer[3,3] = (2 * x[3]^2 + 1) / gam * w
 end
 
 function F_ptoU(x::MVector{3,Float64}, buffer::MVector{3,Float64},eos::Polytrope)
     gam::Float64 = sqrt(x[3]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
-    buffer[1] = gam*x[1]
-    buffer[2] = (eos.gamma-1)*x[2] - gam^2 * w
-    buffer[3] = x[3]*gam * w
+    buffer[1] = gam * x[1]
+    buffer[2] = (eos.gamma-1) * x[2] - gam^2 * w
+    buffer[3] = x[3] * gam * w
 end
 
 
