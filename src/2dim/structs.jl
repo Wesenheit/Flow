@@ -74,7 +74,7 @@ end
 function function_PtoFx(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Polytrope)
     gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
-    buffer[1] = gam*x[3]
+    buffer[1] = x[1]*x[3]
     buffer[2] = - w *x[3] * gam
     buffer[3] = x[3]^2 * w + (eos.gamma - 1) * x[2]
     buffer[4] = x[3] * x[4] * w 
@@ -83,14 +83,14 @@ end
 function function_PtoFy(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Polytrope)
     gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
-    buffer[1] = gam*x[4]
+    buffer[1] = x[1]*x[4]
     buffer[2] = - w *x[4] * gam
     buffer[3] = x[3] * x[4] * w 
     buffer[4] = x[4]^2 * w + (eos.gamma - 1) * x[2]
 end
 
 function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
-    @threads :static for i in 1:P.size_X
+    @threads for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
             function_PtoFx(P.arr[i,j,:],buffer,eos)
@@ -103,7 +103,7 @@ function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
 end
 
 function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
-    @threads :static for i in 1:P.size_X
+    @threads for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
             function_PtoFy(P.arr[i,j,:],buffer,eos)
@@ -116,7 +116,7 @@ function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
 end
 
 function PtoU(P::ParVector2D,U::ParVector2D,eos::EOS)
-    @threads :static for i in 1:P.size_X
+    @threads for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
             function_PtoU(P.arr[i,j,:],buffer,eos)
@@ -130,7 +130,7 @@ end
 
 
 function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
-    @threads :static for i in 1:P.size_X            
+    @threads for i in 1:P.size_X            
         buff_start::MVector{4,Float64} = MVector(0.,0.,0.,0.)
         buff_fun::MVector{4,Float64} = MVector(0.,0.,0.,0.)
         buff_jac::MMatrix{4,4,Float64} = @MMatrix zeros(4,4)

@@ -7,8 +7,8 @@ Nx = 400
 Ny = 400
 P = Flow2D.ParVector2D{Float64,Nx,Ny}()
 
-uinf = 0.3
-ratio = 0.5
+uinf = 0.4
+ratio = 0.05
 for i in 1:Nx
     for j in 1:Ny
         P.arr[i,j,1] = 0.1
@@ -23,16 +23,17 @@ for i in 1:Nx
 
     end
 end
-#P.arr[:,:,4] += randn(Nx,Ny) * 0.001
+P.arr[:,:,4] += randn(Nx,Ny) * 0.01
 
 dx::Float64 = 1/Nx
 dy::Float64 = 1/Ny
 dt::Float64 = dx*0.4
 println("Courant/c: ",dt/dx)
-T::Float64 = 1.
+T::Float64 = 10 *sqrt(uinf^2 + 1)/uinf
+println("T: ",T) 
 n_it::Int64 = 10.
 tol::Float64 = 1e-6
-drops::Float64 = T/20.
+drops::Float64 = T/10.
 floor::Float64 = 1e-4
 
 pinthreads(:cores)

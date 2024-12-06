@@ -1,6 +1,6 @@
 
 function CalculateLinear(P::ParVector2D,PL::ParVector2D,PR::ParVector2D,PD::ParVector2D,PU::ParVector2D,FluxLimiter::Function)
-    @threads :static for i in 1:P.size_X
+    @threads for i in 1:P.size_X
         buff1 = zeros(4)
         buff2 = zeros(4)
         for j in 1:P.size_Y
@@ -44,7 +44,7 @@ function CalculateHLLFluxes(PL::ParVector2D,PR::ParVector2D,PD::ParVector2D,PU::
                             FL::ParVector2D,FR::ParVector2D,FD::ParVector2D,FU::ParVector2D,
                             UL::ParVector2D,UR::ParVector2D,UD::ParVector2D,UU::ParVector2D,
                             Fx::ParVector2D,Fy::ParVector2D,eos::EOS)
-    @threads :static for i in 1:PL.size_X
+    @threads  for i in 1:PL.size_X
         for j in 1:PL.size_Y
             vL::Float64 = PL.arr[i,j,3] / sqrt(PL.arr[i,j,3]^2 + PL.arr[i,j,4]^2 + 1)
             vR::Float64 = PR.arr[i,j,3] / sqrt(PR.arr[i,j,3]^2 + PR.arr[i,j,4]^2 + 1)
@@ -66,7 +66,14 @@ function CalculateHLLFluxes(PL::ParVector2D,PR::ParVector2D,PD::ParVector2D,PU::
             C_min_X::Float64 = -min( (vL - sqrt(sigma_S_L * (1-vL^2 + sigma_S_L)) ) / (1 + sigma_S_L), (vR - sqrt(sigma_S_R * (1-vR^2 + sigma_S_R)) ) / (1 + sigma_S_R)) # velocity composition
             C_max_Y::Float64 = max( (vU + sqrt(sigma_S_U * (1-vU^2 + sigma_S_U)) ) / (1 + sigma_S_U), (vD + sqrt(sigma_S_D * (1-vD^2 + sigma_S_D)) ) / (1 + sigma_S_D)) # velocity composition
             C_min_Y::Float64 = -min( (vU - sqrt(sigma_S_U * (1-vU^2 + sigma_S_U) )) / (1 + sigma_S_U), (vD - sqrt(sigma_S_D * (1-vD^2 + sigma_S_D)) ) / (1 + sigma_S_D)) # velocity composition
-
+            
+            """
+            C_min_X = 1.0
+            C_max_X = 1.0
+            C_max_Y = 1.0
+            C_min_Y = 1.0
+            """
+            
             if C_max_X < 0 
                 @inbounds Fx.arr[i,j,:] =  FR.arr[i,j,:] 
             elseif C_min_X < 0 
@@ -157,7 +164,7 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
                             Fx,Fy,eos)
 
 
-        @threads :static for i in 1:Nx
+        @threads  for i in 1:Nx
             for j in 1:Ny
                 if i == 1 
                     im1 = Nx
@@ -203,7 +210,7 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
                             UL,UR,UD,UU,
                             Fxhalf,Fyhalf,eos)
 
-        @threads :static for i in 1:Nx
+        @threads for i in 1:Nx
             for j in 1:Ny
                 if i == 1 
                     im1 = Nx
@@ -222,7 +229,8 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
         UtoP(U,P,eos,kwargs...) #Conversion to primitive variables
         P.arr[:,:,1] = clamp.(P.arr[:,:,1],floor,Inf)
         P.arr[:,:,2] = clamp.(P.arr[:,:,2],floor,Inf)
-        
+
+        #println(maximum(U.arr[:,:,1]))
         t += dt
 
         if t > thres_to_dump

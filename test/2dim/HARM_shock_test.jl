@@ -2,9 +2,9 @@ using BenchmarkTools
 using CairoMakie
 using ThreadPinning
 include("../../src/2dim/Flow2D.jl")
-eos = Flow2D.Polytrope(4.0/3.0)
-Nx = 200
-Ny = 200
+eos = Flow2D.Polytrope(5.0/3.0)
+Nx = 100
+Ny = 100
 P = Flow2D.ParVector2D{Float64,Nx,Ny}()
 
 X_arr = LinRange(-1,1,Nx) |> collect
@@ -25,13 +25,17 @@ P.arr[:,:,4] += randn(Nx,Ny) * 0.001
 
 dx::Float64 = 2/Nx
 dy::Float64 = 2/Ny
-dt::Float64 = dx*0.0001
+dt::Float64 = dx*0.001
 println("Courant/c: ",dt/dx)
 T::Float64 = 1.
 n_it::Int64 = 40.
 tol::Float64 = 1e-8
 drops::Float64 = T/20.
 floor::Float64 = 1e-4
+
+pinthreads(:cores)
+threadinfo(;)
+
 
 out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
 
