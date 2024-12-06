@@ -77,7 +77,7 @@ function function_PtoFx(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Poly
     buffer[1] = gam*x[3]
     buffer[2] = - w *x[3] * gam
     buffer[3] = x[3]^2 * w + (eos.gamma - 1) * x[2]
-    buffer[4] = x[3] * x[4] * w #+ (eos.gamma - 1) * x[2]
+    buffer[4] = x[3] * x[4] * w 
 end
 
 function function_PtoFy(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Polytrope)
@@ -85,7 +85,7 @@ function function_PtoFy(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Poly
     w::Float64 = eos.gamma * x[2] + x[1] 
     buffer[1] = gam*x[4]
     buffer[2] = - w *x[4] * gam
-    buffer[3] = x[3] * x[4] * w #+ (eos.gamma - 1) * x[2]
+    buffer[3] = x[3] * x[4] * w 
     buffer[4] = x[4]^2 * w + (eos.gamma - 1) * x[2]
 end
 

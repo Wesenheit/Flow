@@ -32,13 +32,13 @@ T::Float64 = 0.25
 n_it::Int64 = 10.
 tol::Float64 = 1e-6
 drops::Float64 = T/20.
+floor::Float64 = 1e-7
 
-
-out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.MC,n_it,tol)
+out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
 
 f = Figure()
 
-image(f[1, 1], out[end].arr[:,:,1],
+lines(f[1, 1], out[end].arr[:,div(Ny,2),1],
     axis = (title = "Default",))
 
 save("tube_test.pdf",f)
