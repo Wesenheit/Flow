@@ -1,9 +1,9 @@
-using StaticArrays
 using LinearAlgebra
+using StaticArrays
 using Base.Threads
 using Base.Iterators
-
-
+using TimerOutputs
+BLAS.set_num_threads(1)
 
 # Used scheme
 # U - conserved varaibles
@@ -31,7 +31,7 @@ end
 
 Base.copy(s::ParVector2D) = ParVector2D(s.arr,s.size_X,s.size_Y)
 
-function Jacobian(x::MVector{4,Float64},buffer::MMatrix{4,4,Float64},eos::Polytrope)
+function Jacobian(x::AbstractVector,buffer::AbstractMatrix,eos::Polytrope)
     gam::Float64 = sqrt(1 + x[3]^2 + x[4]^2) ### gamma factor
     w::Float64 = eos.gamma * x[2] + x[1] ### enthalpy w = p + u + rho
     buffer[1,1] = gam
@@ -55,7 +55,7 @@ function Jacobian(x::MVector{4,Float64},buffer::MMatrix{4,4,Float64},eos::Polytr
     buffer[4,4] = (2*x[4]^2 + x[3]^2 + 1) / gam * w
 end
 
-function function_PtoU(x::MVector{4,Float64}, buffer::MVector{4,Float64},eos::Polytrope)
+function function_PtoU(x::AbstractVector, buffer::AbstractVector,eos::Polytrope)
     gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
     buffer[1] = gam * x[1]
@@ -64,17 +64,7 @@ function function_PtoU(x::MVector{4,Float64}, buffer::MVector{4,Float64},eos::Po
     buffer[4] = x[4] * gam * w
 end
 
-function function_PtoU(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Polytrope)
-    gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
-    w::Float64 = eos.gamma * x[2] + x[1] 
-    buffer[1] = gam * x[1]
-    buffer[2] = (eos.gamma-1) * x[2] - gam^2 * w
-    buffer[3] = x[3] * gam * w
-    buffer[4] = x[4] * gam * w
-end
-
-
-function function_PtoFx(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Polytrope)
+function function_PtoFx(x::AbstractVector, buffer::AbstractVector,eos::Polytrope)
     gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
     buffer[1] = x[1]*x[3]
@@ -83,7 +73,7 @@ function function_PtoFx(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Poly
     buffer[4] = x[3] * x[4] * w 
 end
 
-function function_PtoFy(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Polytrope)
+function function_PtoFy(x::AbstractVector, buffer::AbstractVector,eos::Polytrope)
     gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
     buffer[1] = x[1]*x[4]
@@ -95,8 +85,12 @@ end
 function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
     @threads  for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
+        bufferp::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
-            function_PtoFx(P.arr[i,j,:],buffer,eos)
+            for idx in 1:4
+                bufferp[idx] = P.arr[i,j,idx] 
+            end
+            function_PtoFx(bufferp,buffer,eos)
             Fx.arr[i,j,1] = buffer[1]
             Fx.arr[i,j,2] = buffer[2]
             Fx.arr[i,j,3] = buffer[3]
@@ -108,8 +102,12 @@ end
 function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
     @threads  for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
+        bufferp::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
-            function_PtoFy(P.arr[i,j,:],buffer,eos)
+            for idx in 1:4
+                bufferp[idx] = P.arr[i,j,idx] 
+            end
+            function_PtoFy(bufferp,buffer,eos)
             Fy.arr[i,j,1] = buffer[1]
             Fy.arr[i,j,2] = buffer[2]
             Fy.arr[i,j,3] = buffer[3]
@@ -121,8 +119,12 @@ end
 function PtoU(P::ParVector2D,U::ParVector2D,eos::EOS)
     @threads  for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
+        bufferp::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
-            function_PtoU(P.arr[i,j,:],buffer,eos)
+            for idx in 1:4
+                bufferp[idx] = P.arr[i,j,idx] 
+            end
+            function_PtoU(bufferp,buffer,eos)
             U.arr[i,j,1] = buffer[1]
             U.arr[i,j,2] = buffer[2]
             U.arr[i,j,3] = buffer[3]
@@ -133,19 +135,27 @@ end
 
 
 function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
-    @threads  for i in 1:P.size_X            
-        buff_start::MVector{4,Float64} = MVector(0.,0.,0.,0.)
-        buff_fun::MVector{4,Float64} = MVector(0.,0.,0.,0.)
-        buff_jac::MMatrix{4,4,Float64} = @MMatrix zeros(4,4)
+    
+    buff_fun_arr::Vector{MVector{4,Float64}} = []
+    buff_start_arr::Vector{MVector{4,Float64}} = []
+    buff_jac_arr::Vector{MMatrix{4,4,Float64}} = []
+    buff_out_arr::Vector{MVector{4,Float64}} = []
+    for num in 1:nthreads()
+        push!(buff_fun_arr, @MVector zeros(4))
+        push!(buff_jac_arr,@MMatrix zeros(4,4))
+        push!(buff_start_arr,@MVector zeros(4))
+        push!(buff_out_arr,@MVector zeros(4))
+    end
+    @threads :static for i in 1:P.size_X
+        buff_fun = buff_fun_arr[threadid()]
+        buff_jac = buff_jac_arr[threadid()]
+        buff_start = buff_start_arr[threadid()]
+        buff_out = buff_out_arr[threadid()]
         for j in 1:P.size_Y
-            #println(i," ",j)
             buff_start[1] = P.arr[i,j,1]
             buff_start[2] = P.arr[i,j,2]
-            buff_start[3] = P.arr[i,j,3]
+            buff_start[3] = P.arr[i,j,3] 
             buff_start[4] = P.arr[i,j,4]
-            buff_fun = MVector(0.,0.,0.,0.)
-            buff_jac = @MMatrix zeros(4,4)
-            #buff_start = MVector(0.,0.,0.,0.)
             for num in 1:n_iter
                 function_PtoU(buff_start,buff_fun,eos)
                 Jacobian(buff_start,buff_jac,eos)
@@ -153,13 +163,17 @@ function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=
                 buff_fun[2] = buff_fun[2] - U.arr[i,j,2]
                 buff_fun[3] = buff_fun[3] - U.arr[i,j,3]
                 buff_fun[4] = buff_fun[4] - U.arr[i,j,4]
+                
+                mat = lu!(buff_jac)
+                ldiv!(buff_out,mat,buff_fun)
 
-                buff_fun = buff_jac \ buff_fun
-    
-                if norm(buff_fun) < tol
+                if sqrt(buff_out[1]^2 + buff_out[2]^2 + buff_out[3]^2 + buff_out[4]^2) < tol
                     break
                 end
-                buff_start = buff_start .- buff_fun
+                buff_start[1] = buff_start[1] - buff_out[1]
+                buff_start[2] = buff_start[2] - buff_out[2]
+                buff_start[3] = buff_start[3] - buff_out[3]
+                buff_start[4] = buff_start[4] - buff_out[4]
             end
             P.arr[i,j,1] = buff_start[1]
             P.arr[i,j,2] = buff_start[2]
