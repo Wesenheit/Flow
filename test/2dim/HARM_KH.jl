@@ -4,9 +4,9 @@ using ThreadPinning
 using Profile
 
 include("../../src/2dim/Flow2D.jl")
-eos = Flow2D.Polytrope(4.0/3.0)
-Nx = 100
-Ny = 100
+eos = Flow2D.Polytrope(5.0/3.0)
+Nx = 400
+Ny = 400
 P = Flow2D.ParVector2D{Float64,Nx,Ny}()
 
 uinf = 0.4
