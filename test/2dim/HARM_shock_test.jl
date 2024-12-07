@@ -16,7 +16,7 @@ for i in 1:Nx
         Y = Y_arr[j]
         P.arr[i,j,1] = 0.4
         P.arr[i,j,2] = 0.6
-        if X > -0.5 && X < 0.5
+        if X < 0.1
             P.arr[i,j,3] = (Y-1)* (Y+1)    
         end        
     end
@@ -25,7 +25,7 @@ P.arr[:,:,4] += randn(Nx,Ny) * 0.001
 
 dx::Float64 = 2/Nx
 dy::Float64 = 2/Ny
-dt::Float64 = dx*0.001
+dt::Float64 = dx*0.4
 println("Courant/c: ",dt/dx)
 T::Float64 = 1.
 n_it::Int64 = 40.
@@ -37,7 +37,7 @@ pinthreads(:cores)
 threadinfo(;)
 
 
-out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
+out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it = n_it,tol = tol,a = "te")
 
 f = Figure()
 

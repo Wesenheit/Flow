@@ -1,6 +1,9 @@
 using StaticArrays
 using LinearAlgebra
 using Base.Threads
+using Base.Iterators
+
+
 
 # Used scheme
 # U - conserved varaibles
@@ -90,7 +93,7 @@ function function_PtoFy(x::Vector{Float64}, buffer::MVector{4,Float64},eos::Poly
 end
 
 function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
-    @threads for i in 1:P.size_X
+    @threads  for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
             function_PtoFx(P.arr[i,j,:],buffer,eos)
@@ -103,7 +106,7 @@ function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
 end
 
 function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
-    @threads for i in 1:P.size_X
+    @threads  for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
             function_PtoFy(P.arr[i,j,:],buffer,eos)
@@ -116,7 +119,7 @@ function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
 end
 
 function PtoU(P::ParVector2D,U::ParVector2D,eos::EOS)
-    @threads for i in 1:P.size_X
+    @threads  for i in 1:P.size_X
         buffer::MVector{4,Float64} = @MVector zeros(4)
         for j in 1:P.size_Y
             function_PtoU(P.arr[i,j,:],buffer,eos)
@@ -130,7 +133,7 @@ end
 
 
 function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
-    @threads for i in 1:P.size_X            
+    @threads  for i in 1:P.size_X            
         buff_start::MVector{4,Float64} = MVector(0.,0.,0.,0.)
         buff_fun::MVector{4,Float64} = MVector(0.,0.,0.,0.)
         buff_jac::MMatrix{4,4,Float64} = @MMatrix zeros(4,4)

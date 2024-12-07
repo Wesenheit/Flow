@@ -1,6 +1,6 @@
 
 function CalculateLinear(P::ParVector2D,PL::ParVector2D,PR::ParVector2D,PD::ParVector2D,PU::ParVector2D,FluxLimiter::Function)
-    @threads for i in 1:P.size_X
+    @threads  for i in 1:P.size_X
         buff1 = zeros(4)
         buff2 = zeros(4)
         for j in 1:P.size_Y
@@ -46,33 +46,26 @@ function CalculateHLLFluxes(PL::ParVector2D,PR::ParVector2D,PD::ParVector2D,PU::
                             Fx::ParVector2D,Fy::ParVector2D,eos::EOS)
     @threads  for i in 1:PL.size_X
         for j in 1:PL.size_Y
-            vL::Float64 = PL.arr[i,j,3] / sqrt(PL.arr[i,j,3]^2 + PL.arr[i,j,4]^2 + 1)
-            vR::Float64 = PR.arr[i,j,3] / sqrt(PR.arr[i,j,3]^2 + PR.arr[i,j,4]^2 + 1)
-            vD::Float64 = PD.arr[i,j,4] / sqrt(PD.arr[i,j,3]^2 + PD.arr[i,j,4]^2 + 1)
-            vU::Float64 = PU.arr[i,j,4] / sqrt(PU.arr[i,j,3]^2 + PU.arr[i,j,4]^2 + 1)
+            @inbounds vL::Float64 = PL.arr[i,j,3] / sqrt(PL.arr[i,j,3]^2 + PL.arr[i,j,4]^2 + 1)
+            @inbounds vR::Float64 = PR.arr[i,j,3] / sqrt(PR.arr[i,j,3]^2 + PR.arr[i,j,4]^2 + 1)
+            @inbounds vD::Float64 = PD.arr[i,j,4] / sqrt(PD.arr[i,j,3]^2 + PD.arr[i,j,4]^2 + 1)
+            @inbounds vU::Float64 = PU.arr[i,j,4] / sqrt(PU.arr[i,j,3]^2 + PU.arr[i,j,4]^2 + 1)
 
-            CL::Float64 = SoundSpeed(PL.arr[i,j,1],PL.arr[i,j,2],eos)
-            CR::Float64 = SoundSpeed(PR.arr[i,j,1],PR.arr[i,j,2],eos)
-            CD::Float64 = SoundSpeed(PD.arr[i,j,1],PD.arr[i,j,2],eos)
-            CU::Float64 = SoundSpeed(PU.arr[i,j,1],PU.arr[i,j,2],eos)
+            @inbounds CL::Float64 = SoundSpeed(PL.arr[i,j,1],PL.arr[i,j,2],eos)
+            @inbounds CR::Float64 = SoundSpeed(PR.arr[i,j,1],PR.arr[i,j,2],eos)
+            @inbounds CD::Float64 = SoundSpeed(PD.arr[i,j,1],PD.arr[i,j,2],eos)
+            @inbounds CU::Float64 = SoundSpeed(PU.arr[i,j,1],PU.arr[i,j,2],eos)
 
         
-            sigma_S_L::Float64 = CL^2 / ( (PL.arr[i,j,3]^2 + PL.arr[i,j,4]^2 + 1) * (1-CL^2))
-            sigma_S_R::Float64 = CR^2 / ( (PR.arr[i,j,3]^2 + PR.arr[i,j,4]^2 + 1) * (1-CR^2))
-            sigma_S_D::Float64 = CD^2 / ( (PD.arr[i,j,3]^2 + PD.arr[i,j,4]^2 + 1) * (1-CD^2))
-            sigma_S_U::Float64 = CU^2 / ( (PU.arr[i,j,3]^2 + PU.arr[i,j,4]^2 + 1) * (1-CU^2))
+            @inbounds sigma_S_L::Float64 = CL^2 / ( (PL.arr[i,j,3]^2 + PL.arr[i,j,4]^2 + 1) * (1-CL^2))
+            @inbounds sigma_S_R::Float64 = CR^2 / ( (PR.arr[i,j,3]^2 + PR.arr[i,j,4]^2 + 1) * (1-CR^2))
+            @inbounds sigma_S_D::Float64 = CD^2 / ( (PD.arr[i,j,3]^2 + PD.arr[i,j,4]^2 + 1) * (1-CD^2))
+            @inbounds sigma_S_U::Float64 = CU^2 / ( (PU.arr[i,j,3]^2 + PU.arr[i,j,4]^2 + 1) * (1-CU^2))
 
             C_max_X::Float64 = max( (vL + sqrt(sigma_S_L * (1-vL^2 + sigma_S_L)) ) / (1 + sigma_S_L), (vR + sqrt(sigma_S_R * (1-vR^2 + sigma_S_R)) ) / (1 + sigma_S_R)) # velocity composition
             C_min_X::Float64 = -min( (vL - sqrt(sigma_S_L * (1-vL^2 + sigma_S_L)) ) / (1 + sigma_S_L), (vR - sqrt(sigma_S_R * (1-vR^2 + sigma_S_R)) ) / (1 + sigma_S_R)) # velocity composition
             C_max_Y::Float64 = max( (vU + sqrt(sigma_S_U * (1-vU^2 + sigma_S_U)) ) / (1 + sigma_S_U), (vD + sqrt(sigma_S_D * (1-vD^2 + sigma_S_D)) ) / (1 + sigma_S_D)) # velocity composition
             C_min_Y::Float64 = -min( (vU - sqrt(sigma_S_U * (1-vU^2 + sigma_S_U) )) / (1 + sigma_S_U), (vD - sqrt(sigma_S_D * (1-vD^2 + sigma_S_D)) ) / (1 + sigma_S_D)) # velocity composition
-            
-            """
-            C_min_X = 1.0
-            C_max_X = 1.0
-            C_max_Y = 1.0
-            C_min_Y = 1.0
-            """
             
             if C_max_X < 0 
                 @inbounds Fx.arr[i,j,:] =  FR.arr[i,j,:] 
@@ -122,10 +115,7 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
 
     Fxhalf::ParVector2D = ParVector2D{Float64,Nx,Ny}() # HLL flux
     Fyhalf::ParVector2D = ParVector2D{Float64,Nx,Ny}() # HLL flux
-    
-    r1::Float64 = 0
-    r2::Float64 = 0
-    r3::Float64 = 0
+
 
     t::Float64 = 0
     PtoU(P,U,eos)
@@ -135,8 +125,8 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
     push!(out,deepcopy(P))
     while t < T
 
-        CalculateLinear(P,PL,PR,PD,PU,FluxLimiter)
-
+        @inbounds CalculateLinear(P,PL,PR,PD,PU,FluxLimiter)
+        """
         PR.arr[:,:,1] = clamp.(PR.arr[:,:,1],floor,Inf)
         PL.arr[:,:,1] = clamp.(PL.arr[:,:,1],floor,Inf)
         PD.arr[:,:,1] = clamp.(PD.arr[:,:,1],floor,Inf)
@@ -146,16 +136,16 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
         PL.arr[:,:,2] = clamp.(PL.arr[:,:,2],floor,Inf)
         PD.arr[:,:,2] = clamp.(PD.arr[:,:,2],floor,Inf)
         PU.arr[:,:,2] = clamp.(PU.arr[:,:,2],floor,Inf)
+        """
+        @inbounds PtoU(PR,UR,eos)
+        @inbounds PtoU(PL,UL,eos)
+        @inbounds PtoU(PD,UD,eos)
+        @inbounds PtoU(PU,UU,eos)
 
-        PtoU(PR,UR,eos)
-        PtoU(PL,UL,eos)
-        PtoU(PD,UD,eos)
-        PtoU(PU,UU,eos)
-
-        PtoFx(PR,FR,eos)
-        PtoFx(PL,FL,eos)
-        PtoFy(PD,FD,eos)
-        PtoFy(PU,FU,eos)
+        @inbounds PtoFx(PR,FR,eos)
+        @inbounds PtoFx(PL,FL,eos)
+        @inbounds PtoFy(PD,FD,eos)
+        @inbounds PtoFy(PU,FU,eos)
 
 
         CalculateHLLFluxes(PL,PR,PD,PU,
@@ -181,12 +171,13 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
         end
         #display(Uhalf.arr[:,:,3])
         Phalf.arr = P.arr
-        UtoP(Uhalf,Phalf,eos,kwargs...) #Conversion to primitive variables at the half-step
+        @inbounds UtoP(Uhalf,Phalf,eos,kwargs...) #Conversion to primitive variables at the half-step
         Phalf.arr[:,:,1] = clamp.(Phalf.arr[:,:,1],floor,Inf)
         Phalf.arr[:,:,2] = clamp.(Phalf.arr[:,:,2],floor,Inf)
 
         CalculateLinear(Phalf,PL,PR,PD,PU,FluxLimiter)
         
+        """
         PR.arr[:,:,1] = clamp.(PR.arr[:,:,1],floor,Inf)
         PL.arr[:,:,1] = clamp.(PL.arr[:,:,1],floor,Inf)
         PD.arr[:,:,1] = clamp.(PD.arr[:,:,1],floor,Inf)
@@ -195,22 +186,22 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
         PL.arr[:,:,2] = clamp.(PL.arr[:,:,2],floor,Inf)
         PD.arr[:,:,2] = clamp.(PD.arr[:,:,2],floor,Inf)
         PU.arr[:,:,2] = clamp.(PU.arr[:,:,2],floor,Inf)
-        
-        PtoU(PR,UR,eos)
-        PtoU(PL,UL,eos)
-        PtoU(PD,UD,eos)
-        PtoU(PU,UU,eos)
-        PtoFx(PR,FR,eos)
-        PtoFx(PL,FL,eos)
-        PtoFy(PD,FD,eos)
-        PtoFy(PU,FU,eos)
+        """
+        @inbounds PtoU(PR,UR,eos)
+        @inbounds PtoU(PL,UL,eos)
+        @inbounds PtoU(PD,UD,eos)
+        @inbounds PtoU(PU,UU,eos)
+        @inbounds PtoFx(PR,FR,eos)
+        @inbounds PtoFx(PL,FL,eos)
+        @inbounds PtoFy(PD,FD,eos)
+        @inbounds PtoFy(PU,FU,eos)
 
         CalculateHLLFluxes(PL,PR,PD,PU,
                             FL,FR,FD,FU,
                             UL,UR,UD,UU,
                             Fxhalf,Fyhalf,eos)
 
-        @threads for i in 1:Nx
+        @threads  for i in 1:Nx
             for j in 1:Ny
                 if i == 1 
                     im1 = Nx
@@ -226,7 +217,7 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
             end
         end
 
-        UtoP(U,P,eos,kwargs...) #Conversion to primitive variables
+        @inbounds UtoP(U,P,eos,kwargs...) #Conversion to primitive variables
         P.arr[:,:,1] = clamp.(P.arr[:,:,1],floor,Inf)
         P.arr[:,:,2] = clamp.(P.arr[:,:,2],floor,Inf)
 
