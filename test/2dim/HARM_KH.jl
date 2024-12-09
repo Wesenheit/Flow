@@ -5,27 +5,27 @@ using Profile
 
 include("../../src/2dim/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
-Nx = 500
-Ny = 500
+Nx = 1000
+Ny = 1000
 P = Flow2D.ParVector2D{Float64,Nx,Ny}()
 
-uinf = 0.1
+uinf = 0.4
 ratio = 0.01
 for i in 1:Nx
     for j in 1:Ny
-        P.arr[i,j,1] = 0.1
-        P.arr[i,j,2] = 0.1
-        P.arr[i,j,4] = 0.
+        P.arr[1,i,j] = 0.1
+        P.arr[2,i,j] = 0.1
+        P.arr[4,i,j] = 0.
 
         if j > div(Ny,2)+1
-            P.arr[i,j,3] = uinf * tanh( (div(Ny,4)*3 - j) / (ratio * Ny))
+            P.arr[3,i,j] = uinf * tanh( (div(Ny,4)*3 - j) / (ratio * Ny))
         else
-            P.arr[i,j,3] = uinf * tanh( -(div(Ny,4) - j) / (ratio * Ny))
+            P.arr[3,i,j] = uinf * tanh( -(div(Ny,4) - j) / (ratio * Ny))
         end
 
     end
 end
-P.arr[:,:,4] += randn(Nx,Ny) * 0.01
+P.arr[4,:,:] += randn(Nx,Ny) * 0.01
 
 dx::Float64 = 1/Nx
 dy::Float64 = 1/Ny
@@ -57,7 +57,7 @@ using CairoMakie
 min_val = 0
 max_val = 0.15
 anim = @animate for i in 1:length(out)
-    data = out[i].arr[:, :, 1]
+    data = out[i].arr[1,:, :]
     
     p = Plots.heatmap(data, xlabel="x", ylabel="y", color=:viridis, 
                       clims=(min_val, max_val), size=(600, 600))

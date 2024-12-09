@@ -10,16 +10,16 @@ P = Flow2D.ParVector2D{Float64,Nx,Ny}()
 for i in 1:Nx
     for j in 1:Ny
 
-        P.arr[i,j,4] = 0.
-        P.arr[i,j,3] = 0.
+        P.arr[4,i,j] = 0.
+        P.arr[3,i,j] = 0.
 
         #if j < div(Ny,3)*2 && j > div(Ny,3)
         if i < div(Nx,3)*2 && i > div(Nx,3)
-            P.arr[i,j,1] = 10.
-            P.arr[i,j,2] = 10^4/(eos.gamma - 1)
+            P.arr[1,i,j] = 10.
+            P.arr[2,i,j] = 10^4/(eos.gamma - 1)
         else
-            P.arr[i,j,1] = 1.
-            P.arr[i,j,2] = 0.1/(eos.gamma - 1)
+            P.arr[1,i,j] = 1.
+            P.arr[2,i,j] = 0.1/(eos.gamma - 1)
         end
     end
 end
@@ -44,11 +44,11 @@ ax_gamm =  Axis(f[2, 1],xlabel = L"$X$",ylabel = L"$\Gamma$")
 ax_vel = Axis(f[2,2],xlabel = L"$X$",ylabel = L"$v_X$")
 
 for i in 1:length(out)
-    lines!(ax_rho, X, out[i].arr[:,div(Ny,2),1] |> collect,color = "black")
-    lines!(ax_P, X, (eos.gamma -1) * out[i].arr[:,div(Ny,2),2] |> collect,color = "black")
-    gamma = sqrt.(  out[i].arr[:,div(Ny,3),3].^2 .+ 1)
+    lines!(ax_rho, X, out[i].arr[1,:,div(Ny,2)] |> collect,color = "black")
+    lines!(ax_P, X, (eos.gamma -1) * out[i].arr[2,:,div(Ny,2)] |> collect,color = "black")
+    gamma = sqrt.(  out[i].arr[3,:,div(Ny,3)].^2 .+ 1)
     lines!(ax_gamm, X, gamma,color = "black")
-    lines!(ax_vel, X,  out[i].arr[:,div(Ny,2),3] ./ gamma,color = "black")
+    lines!(ax_vel, X,  out[i].arr[3,:,div(Ny,2)] ./ gamma,color = "black")
 end
 
 save("tube_test.pdf",f)
