@@ -250,7 +250,6 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
         t += dt
 
         if t > thres_to_dump
-            show(to)
             push!(out,deepcopy(P))
             thres_to_dump += drops
             println(t)
