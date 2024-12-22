@@ -1,5 +1,14 @@
-function CalculateLinear(P::ParVector2D,PL::ParVector2D,PR::ParVector2D,PD::ParVector2D,PU::ParVector2D,FluxLimiter::Function)
+function Limit(P::ParVector2D,floor::Float64)
+    @threads for j in 1:P.size_Y
+        for i in 1:P.size_X
+            P.arr[1,i,j] = max(P.arr[1,i,j],floor)
+            P.arr[2,i,j] = max(P.arr[2,i,j],floor)
+        end
+    end
+end
 
+
+function CalculateLinear(P::ParVector2D,PL::ParVector2D,PR::ParVector2D,PD::ParVector2D,PU::ParVector2D,FluxLimiter::Function)
     @sync for chunk in P.part
         @spawn begin
             buff1::MVector{4,Float64} = @MVector zeros(4)
@@ -154,7 +163,6 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
     Fxhalf::ParVector2D = ParVector2D{Float64,Nx,Ny}() # HLL flux
     Fyhalf::ParVector2D = ParVector2D{Float64,Nx,Ny}() # HLL flux
 
-
     t::Float64 = 0
     PtoU(P,U,eos)
 
@@ -171,6 +179,11 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
         @inbounds PtoU(PL,UL,eos)
         @inbounds PtoU(PD,UD,eos)
         @inbounds PtoU(PU,UU,eos)
+        
+        @inbounds Limit(PL,floor)
+        @inbounds Limit(PR,floor)
+        @inbounds Limit(PU,floor)
+        @inbounds Limit(PD,floor)
 
         @inbounds PtoFx(PR,FR,eos)
         @inbounds PtoFx(PL,FL,eos)
@@ -211,12 +224,21 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
         end
         @inbounds UtoP(Uhalf,Phalf,eos,kwargs...) #Conversion to primitive variables at the half-step
 
+        Limit(Phalf,floor)
+
         @inbounds CalculateLinear(Phalf,PL,PR,PD,PU,FluxLimiter)
 
         @inbounds PtoU(PR,UR,eos)
         @inbounds PtoU(PL,UL,eos)
         @inbounds PtoU(PD,UD,eos)
         @inbounds PtoU(PU,UU,eos)
+        
+
+        Limit(PL,floor)
+        Limit(PR,floor)
+        Limit(PU,floor)
+        Limit(PD,floor)
+
         @inbounds PtoFx(PR,FR,eos)
         @inbounds PtoFx(PL,FL,eos)
         @inbounds PtoFy(PD,FD,eos)
@@ -246,6 +268,8 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
         end
 
         @inbounds UtoP(U,P,eos,kwargs...) #Conversion to primitive variables
+
+        Limit(P,floor)
 
         t += dt
 

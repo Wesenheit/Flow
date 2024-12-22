@@ -2,19 +2,26 @@ using BenchmarkTools
 using CairoMakie
 using ThreadPinning
 using Profile
+using Printf
 
 include("../../src/2dim/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
-Nx = 1000
-Ny = 1000
+Nx = 500
+Ny = 500
 P = Flow2D.ParVector2D{Float64,Nx,Ny}()
 
-uinf = 0.4
-ratio = 0.01
+uinf = 0.3
+ratio = 0.1
+U0 = 10.
+Rho0 = 0.1
+Cs = Flow2D.SoundSpeed(Rho0,U0,eos)
+println("u/Cs: ",uinf/(Cs*sqrt(uinf^2+1)))
+KH_par = uinf/(Cs*sqrt(uinf^2+1))
+
 for i in 1:Nx
     for j in 1:Ny
-        P.arr[1,i,j] = 0.1
-        P.arr[2,i,j] = 0.1
+        P.arr[1,i,j] = Rho0
+        P.arr[2,i,j] = U0
         P.arr[4,i,j] = 0.
 
         if j > div(Ny,2)+1
@@ -25,13 +32,13 @@ for i in 1:Nx
 
     end
 end
-P.arr[4,:,:] += randn(Nx,Ny) * 0.01
+P.arr[4,:,:] += randn(Nx,Ny) * uinf * 0.01
 
 dx::Float64 = 1/Nx
 dy::Float64 = 1/Ny
 dt::Float64 = min(dx,dy)*0.4
 println("Courant/c: ",dt/min(dx,dy))
-T::Float64 = 4 *sqrt(uinf^2 + 1)/uinf
+T::Float64 = 6.#4 *sqrt(uinf^2 + 1)/uinf
 println("T: ",T) 
 n_it::Int64 = 10.
 tol::Float64 = 1e-4
@@ -54,8 +61,17 @@ save("KH_test.pdf",f)
 
 using Plots
 using CairoMakie
-min_val = 0
-max_val = 0.15
+min_val = 1000
+max_val = 0
+for i in 1:length(out)
+    if maximum(out[i].arr[1,:,:]) > max_val
+        global max_val = maximum(out[i].arr[1,:,:])
+    end
+    if minimum(out[i].arr[1,:,:]) < min_val
+        global min_val = minimum(out[i].arr[1,:,:])
+    end
+end
+
 anim = @animate for i in 1:length(out)
     data = out[i].arr[1,:, :]
     
@@ -63,7 +79,7 @@ anim = @animate for i in 1:length(out)
                       clims=(min_val, max_val), size=(600, 600))
 end
 
-gif(anim, "KH.gif", fps=fps)
+gif(anim, @sprintf("KH_%.2f.gif",KH_par), fps=fps)
 
 
 

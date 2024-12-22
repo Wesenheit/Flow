@@ -26,12 +26,43 @@ mutable struct ParVector2D{T <:Real,Nx,Ny}
     part
     function ParVector2D{T,Nx,Ny}() where {T, Nx,Ny}
         arr = zeros(4,Nx,Ny)
-        partitions = partition(1:Ny,nthreads())
+        #partitions = partition(1:Ny,nthreads())
+        partitions = partition(1:Ny,div(Ny,nthreads()))
+
         new(arr,Nx,Ny,partitions)
     end
 end
 
 Base.copy(s::ParVector2D) = ParVector2D(s.arr,s.size_X,s.size_Y)
+
+
+mutable struct BufferStruct{T<:Real}
+    #Holding all buffers 
+    Buff_4_1_arr::Vector{MVector{4,T}}
+    Buff_4_2_arr::Vector{MVector{4,T}}
+    Buff_4_3_arr::Vector{MVector{4,T}}
+    Buff_4_4_arr::Vector{MVector{4,T}}
+    Buff_4_5_arr::Vector{MVector{4,T}}
+    Buff_16_arr::Vector{MVector{16,T}}
+    function BufferStruct{T}() where {T}
+        Buff_4_1_arr::Vector{MVector{4,T}} = []
+        Buff_4_2_arr::Vector{MVector{4,T}} = []
+        Buff_4_3_arr::Vector{MVector{4,T}} = []
+        Buff_4_4_arr::Vector{MVector{4,T}} = []
+        Buff_4_5_arr::Vector{MVector{4,T}} = []
+        Buff_16_arr::Vector{MVector{16,T}} = []
+        for i in 1:nthreads()
+            push!(Buff_4_1_arr,@MVector zeros(4))
+            push!(Buff_4_2_arr,@MVector zeros(4))
+            push!(Buff_4_3_arr,@MVector zeros(4))
+            push!(Buff_4_4_arr,@MVector zeros(4))
+            push!(Buff_4_5_arr,@MVector zeros(4))
+            push!(Buff_16_arr,@MVector zeros(16))
+        end
+        new(Buff_4_1_arr,Buff_4_2_arr,Buff_4_3_arr,Buff_4_4_arr,Buff_4_5_arr,Buff_16_arr)
+    end
+end
+
 
 function Jacobian(x::AbstractVector,buffer::AbstractVector,eos::Polytrope)
     gam::Float64 = sqrt(1 + x[3]^2 + x[4]^2) ### gamma factor
@@ -85,7 +116,7 @@ function function_PtoFy(x::AbstractVector, buffer::AbstractVector,eos::Polytrope
 end
 
 function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
-    @sync for chunk in P.part
+    @sync for (id_th,chunk) in enumerate(P.part)
         @spawn begin
             buffer::MVector{4,Float64} = @MVector zeros(4)
             bufferp::MVector{4,Float64} = @MVector zeros(4)
@@ -106,7 +137,7 @@ function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
 end
 
 function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
-    @sync for chunk in P.part
+    @sync for (id_th,chunk) in enumerate(P.part)
         @spawn begin
             buffer::MVector{4,Float64} = @MVector zeros(4)
             bufferp::MVector{4,Float64} = @MVector zeros(4)
@@ -127,7 +158,7 @@ function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
 end
 
 function PtoU(P::ParVector2D,U::ParVector2D,eos::EOS)
-    @sync for chunk in P.part
+    @sync for (id_th,chunk) in enumerate(P.part)
         @spawn begin
             buffer::MVector{4,Float64} = @MVector zeros(4)
             bufferp::MVector{4,Float64} = @MVector zeros(4)
@@ -181,13 +212,12 @@ function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x
 end
 
 function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
-    @sync for chunk in P.part
+    @sync for (id_th,chunk) in enumerate(P.part)
         @spawn begin
             buff_start::MVector{4,Float64} = @MVector zeros(4)
             buff_out::MVector{4,Float64} = @MVector zeros(4)
             buff_fun::MVector{4,Float64} = @MVector zeros(4)
             buff_jac::MVector{16,Float64} = @MVector zeros(16)
-
             for j in chunk
                 for i in 1:P.size_X
                     buff_start[1] = P.arr[1,i,j]
