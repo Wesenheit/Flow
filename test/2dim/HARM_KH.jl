@@ -8,12 +8,12 @@ include("../../src/2dim/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
 Nx = 500
 Ny = 500
-P = Flow2D.ParVector2D{Float64,Nx,Ny}()
+P = Flow2D.ParVector2D{Float64}(Nx,Ny)
 
 uinf = 0.3
 ratio = 0.1
 U0 = 10.
-Rho0 = 0.1
+Rho0 = 5.
 Cs = Flow2D.SoundSpeed(Rho0,U0,eos)
 println("u/Cs: ",uinf/(Cs*sqrt(uinf^2+1)))
 KH_par = uinf/(Cs*sqrt(uinf^2+1))
@@ -38,27 +38,24 @@ dx::Float64 = 1/Nx
 dy::Float64 = 1/Ny
 dt::Float64 = min(dx,dy)*0.4
 println("Courant/c: ",dt/min(dx,dy))
-T::Float64 = 6.#4 *sqrt(uinf^2 + 1)/uinf
+T::Float64 = 1.#4 *sqrt(uinf^2 + 1)/uinf
 println("T: ",T) 
 n_it::Int64 = 10.
 tol::Float64 = 1e-4
 fps = 10
-drops::Float64 = T/(20*fps)
+drops = T/10.
+#drops::Float64 = T/(20*fps)
 floor::Float64 = 1e-4
 
 pinthreads(:cores)
 threadinfo(;)
-#Profile.init()
+
+t1 = time()
 out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
-#out = @profile Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
-#Profile.print(maxdepth = 2 ) 
+elapsed_time = time() - t1;
+println("Elapsed time: ", elapsed_time, " seconds");
 
-f = Figure()
-
-image(f[1, 1], out[end].arr[:,:,1],
-    axis = (title = "Kelvin-Helmholtz",))
-save("KH_test.pdf",f)
-
+"""
 using Plots
 using CairoMakie
 min_val = 1000
@@ -80,6 +77,6 @@ anim = @animate for i in 1:length(out)
 end
 
 gif(anim, @sprintf("KH_%.2f.gif",KH_par), fps=fps)
-
+"""
 
 

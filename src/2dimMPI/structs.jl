@@ -3,6 +3,7 @@ using StaticArrays
 using Base.Threads
 using Base.Iterators
 using TimerOutputs
+using MPI
 BLAS.set_num_threads(1)
 
 # Used scheme
@@ -18,19 +19,48 @@ BLAS.set_num_threads(1)
 # P3 = ux four-velocity in x
 # P4 = uy four-velocity in y
 
-mutable struct ParVector2D{T <:Real}
+abstract type FlowArr end
+
+
+mutable struct ParVector2D_MPI{T <:Real}<:FlowArr
+    # Parameter Vector
+    arr::Array{T,3}
+    arr_L::Array{T,1} #arrays for MPI communication, U is transported!
+    arr_R::Array{T,1}
+    arr_D::Array{T,1}
+    arr_U::Array{T,1}
+    grid_i::Int64
+    grid_j::Int64 # for grid communication
+    size_X::Int64
+    size_Y::Int64
+    part
+    function ParVector2D{T}(Nx,Ny,Num_MPI_i,Num_MPI_j,comm) where {T}
+        arr = zeros(4,Nx+2,Ny+2)
+        @assert Num_MPI_i * Num_MPI_j = size = MPI.Comm_size(comm)
+        partitions = partition(1:Ny+2,div(Ny+2,nthreads()))
+        new(arr,Nx+2,Ny+2,div(MPI.Comm_rank(comm),Num_MPI_j),mod(MPI.Comm_rank(comm),Num_MPI_j),partitions)
+    end
+end
+
+mutable struct ParVector2D{T <:Real}<:FlowArr
     # Parameter Vector
     arr::Array{T,3}
     size_X::Int64
     size_Y::Int64
     part
     function ParVector2D{T}(Nx,Ny) where {T}
-        arr = zeros(4,Nx,Ny)
-        partitions = partition(1:Ny,div(Ny,nthreads()))
-        @assert length(partitions)==nthreads()
-        new(arr,Nx,Ny,partitions)
+        arr = zeros(4,Nx+2,Ny+2)
+        #partitions = partition(1:Ny,nthreads())
+        partitions = partition(1:Ny+2,div(Ny+2,nthreads()))
+        new(arr,Nx+2,Ny+2,partitions)
     end
 end
+
+
+function Synchronize(U::FlowArr,comm)
+    
+end
+
 
 Base.copy(s::ParVector2D) = ParVector2D(s.arr,s.size_X,s.size_Y)
 
@@ -39,17 +69,26 @@ mutable struct BufferStruct{T<:Real}
     #Holding all buffers 
     Buff_4_1_arr::Vector{MVector{4,T}}
     Buff_4_2_arr::Vector{MVector{4,T}}
+    Buff_4_3_arr::Vector{MVector{4,T}}
+    Buff_4_4_arr::Vector{MVector{4,T}}
+    Buff_4_5_arr::Vector{MVector{4,T}}
     Buff_16_arr::Vector{MVector{16,T}}
     function BufferStruct{T}() where {T}
         Buff_4_1_arr::Vector{MVector{4,T}} = []
         Buff_4_2_arr::Vector{MVector{4,T}} = []
+        Buff_4_3_arr::Vector{MVector{4,T}} = []
+        Buff_4_4_arr::Vector{MVector{4,T}} = []
+        Buff_4_5_arr::Vector{MVector{4,T}} = []
         Buff_16_arr::Vector{MVector{16,T}} = []
         for i in 1:nthreads()
             push!(Buff_4_1_arr,@MVector zeros(4))
             push!(Buff_4_2_arr,@MVector zeros(4))
+            push!(Buff_4_3_arr,@MVector zeros(4))
+            push!(Buff_4_4_arr,@MVector zeros(4))
+            push!(Buff_4_5_arr,@MVector zeros(4))
             push!(Buff_16_arr,@MVector zeros(16))
         end
-        new(Buff_4_1_arr,Buff_4_2_arr,Buff_16_arr)
+        new(Buff_4_1_arr,Buff_4_2_arr,Buff_4_3_arr,Buff_4_4_arr,Buff_4_5_arr,Buff_16_arr)
     end
 end
 
@@ -106,11 +145,22 @@ function function_PtoFy(x::AbstractVector, buffer::AbstractVector,eos::Polytrope
 end
 
 function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
-    @threads :static for j in 1:P.size_Y
-        for i in 1:P.size_X
-            bufferp = @view P.arr[:,i,j]
-            buffer = @view Fx.arr[:,i,j]
-            function_PtoFx(bufferp,buffer,eos)
+    @sync for (id_th,chunk) in enumerate(P.part)
+        @spawn begin
+            buffer::MVector{4,Float64} = @MVector zeros(4)
+            bufferp::MVector{4,Float64} = @MVector zeros(4)
+            for j in chunk
+                for i in 1:P.size_X
+                    for idx in 1:4
+                        bufferp[idx] = P.arr[idx,i,j] 
+                    end
+                    function_PtoFx(bufferp,buffer,eos)
+                    Fx.arr[1,i,j] = buffer[1]
+                    Fx.arr[2,i,j] = buffer[2]
+                    Fx.arr[3,i,j] = buffer[3]
+                    Fx.arr[4,i,j] = buffer[4]
+                end
+            end
         end
     end
 end
@@ -118,28 +168,44 @@ end
 function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
     @sync for (id_th,chunk) in enumerate(P.part)
         @spawn begin
+            buffer::MVector{4,Float64} = @MVector zeros(4)
+            bufferp::MVector{4,Float64} = @MVector zeros(4)
             for j in chunk
                 for i in 1:P.size_X
-                    bufferp = @view P.arr[:,i,j]
-                    buffer = @view Fy.arr[:,i,j]
+                    for idx in 1:4
+                        bufferp[idx] = P.arr[idx,i,j] 
+                    end
                     function_PtoFy(bufferp,buffer,eos)
+                    Fy.arr[1,i,j] = buffer[1]
+                    Fy.arr[2,i,j] = buffer[2]
+                    Fy.arr[3,i,j] = buffer[3]
+                    Fy.arr[4,i,j] = buffer[4]
                 end
             end
         end
     end
 end
 
-
 function PtoU(P::ParVector2D,U::ParVector2D,eos::EOS)
-    @threads :static for j in 1:P.size_Y
-        for i in 1:P.size_X
-            bufferp = @view P.arr[:,i,j]
-            buffer = @view U.arr[:,i,j]
-            function_PtoU(bufferp,buffer,eos)
+    @sync for (id_th,chunk) in enumerate(P.part)
+        @spawn begin
+            buffer::MVector{4,Float64} = @MVector zeros(4)
+            bufferp::MVector{4,Float64} = @MVector zeros(4)
+            for j in chunk
+                for i in 1:P.size_X
+                    for idx in 1:4
+                        bufferp[idx] = P.arr[idx,i,j] 
+                    end
+                    function_PtoU(bufferp,buffer,eos)
+                    U.arr[1,i,j] = buffer[1]
+                    U.arr[2,i,j] = buffer[2]
+                    U.arr[3,i,j] = buffer[3]
+                    U.arr[4,i,j] = buffer[4]
+                end
+            end
         end
     end
 end
-
 
 
 function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x::MVector{4,Float64})
@@ -174,45 +240,6 @@ function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x
     end
 end
 
-"""
-function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,buff::BufferStruct,n_iter::Int64,tol::Float64=1e-10)
-    @sync for (id_th,chunk) in enumerate(P.part)
-        @spawn begin
-            #buff_start::MVector{4,Float64} = @MVector zeros(4)
-            #buff_out::MVector{4,Float64} = @MVector zeros(4)
-            #buff_fun::MVector{4,Float64} = @MVector zeros(4)
-            #buff_jac::MVector{16,Float64} = @MVector zeros(16)
-            for j in chunk
-                for i in 1:P.size_X
-                    buff_start = @view P.arr[:,i,j]
-                    for _ in 1:n_iter
-                        function_PtoU(buff_start,buff.Buff_4_1_arr[id_th],eos)
-                        Jacobian(buff_start,buff.Buff_16_arr[id_th],eos)
-                        buff.Buff_4_1_arr[id_th][1] = buff.Buff_4_1_arr[id_th][1] - U.arr[1,i,j]
-                        buff.Buff_4_1_arr[id_th][2] = buff.Buff_4_1_arr[id_th][2] - U.arr[2,i,j]
-                        buff.Buff_4_1_arr[id_th][3] = buff.Buff_4_1_arr[id_th][3] - U.arr[3,i,j]
-                        buff.Buff_4_1_arr[id_th][4] = buff.Buff_4_1_arr[id_th][4] - U.arr[4,i,j]
-                        
-                        LU_dec!(buff.Buff_16_arr[id_th],buff.Buff_4_1_arr[id_th],buff.Buff_4_2_arr[id_th])
-                        #mat = lu!(reshape(buff_jac,4,4))
-                        #ldiv!(buff_out,mat,buff_fun)
-        
-                        if sqrt(buff.Buff_4_2_arr[id_th][1]^2 + buff.Buff_4_2_arr[id_th][2]^2 + buff.Buff_4_2_arr[id_th][3]^2 + buff.Buff_4_2_arr[id_th][4]^2) < tol
-                            break
-                        end
-                        buff_start[1] = buff_start[1] - buff.Buff_4_2_arr[id_th][1]
-                        buff_start[2] = buff_start[2] - buff.Buff_4_2_arr[id_th][2]
-                        buff_start[3] = buff_start[3] - buff.Buff_4_2_arr[id_th][3]
-                        buff_start[4] = buff_start[4] - buff.Buff_4_2_arr[id_th][4]
-                    end
-                end
-            end
-        end
-    end
-end
-
-
-"""
 function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
     @sync for (id_th,chunk) in enumerate(P.part)
         @spawn begin
@@ -254,4 +281,6 @@ function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=
             end
         end
     end
+
 end
+

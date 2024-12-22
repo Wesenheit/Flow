@@ -9,45 +9,63 @@ end
 
 
 function CalculateLinear(P::ParVector2D,PL::ParVector2D,PR::ParVector2D,PD::ParVector2D,PU::ParVector2D,FluxLimiter::Function)
-    @threads :static for j in P.size_Y
-        for i in 1:P.size_X
-            if i == P.size_X 
-                ip = 1
-                im = i-1
-            elseif i == 1
-                ip = i+1
-                im = P.size_X
-            else
-                ip = i+1
-                im = i-1
-            end
+    @sync for chunk in P.part
+        @spawn begin
+            buff1::MVector{4,Float64} = @MVector zeros(4)
+            buff2::MVector{4,Float64} = @MVector zeros(4)
+            buff3::MVector{4,Float64} = @MVector zeros(4)
+            buff4::MVector{4,Float64} = @MVector zeros(4)
+            buff5::MVector{4,Float64} = @MVector zeros(4)
+            for j in chunk
+                for i in 1:P.size_X
+                    if i == P.size_X 
+                        ip = 1
+                        im = i-1
+                    elseif i == 1
+                        ip = i+1
+                        im = P.size_X
+                    else
+                        ip = i+1
+                        im = i-1
+                    end
 
-            if j == P.size_Y
-                jp = 1
-                jm = j-1
-            elseif j == 1
-                jp = j+1
-                jm = P.size_Y
-            else
-                jp = j+1
-                jm = j-1
-            end
+                    if j == P.size_Y
+                        jp = 1
+                        jm = j-1
+                    elseif j == 1
+                        jp = j+1
+                        jm = P.size_Y
+                    else
+                        jp = j+1
+                        jm = j-1
+                    end
 
-            buff3 = @view P.arr[:,im,j]
-            buff4 = @view P.arr[:,i,j]
-            buff5 = @view P.arr[:,ip,j]
-            buff1 = @view PL.arr[:,i,j]
-            buff2 = @view PR.arr[:,im,j]
-            FluxLimiter(buff3,buff4,buff5,buff1,buff2,4)
+                    for idx in 1:4
+                        buff3[idx] = P.arr[idx,im,j]
+                        buff4[idx] = P.arr[idx,i,j]
+                        buff5[idx] = P.arr[idx,ip,j]
+                    end
 
-            buff3 = @view P.arr[:,i,jm]
-            buff4 = @view P.arr[:,i,j]
-            buff5 = @view P.arr[:,i,jp]
-            buff1 = @view PD.arr[:,i,j]
-            buff2 = @view PU.arr[:,i,jm]
+                    FluxLimiter(buff3,buff4,buff5,buff1,buff2,4)
+                    for idx in 1:4
+                        PL.arr[idx,i,j] = buff1[idx]
+                        PR.arr[idx,im,j] = buff2[idx]
+                    end
 
-            FluxLimiter(buff3,buff4,buff5,buff1,buff2,4)
+                    for idx in 1:4
+                        buff3[idx] = P.arr[idx,i,jm]
+                        buff4[idx] = P.arr[idx,i,j]
+                        buff5[idx] = P.arr[idx,i,jp]
+                    end
+
+                    FluxLimiter(buff3,buff4,buff5,buff1,buff2,4)
             
+                    for idx in 1:4
+                        PD.arr[idx,i,j] = buff1[idx]
+                        PU.arr[idx,i,jm] = buff2[idx]
+                    end
+                end
+            end
         end
     end
 end
@@ -117,33 +135,33 @@ end
 
 
 function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy::Float64,T::Float64,eos::EOS,drops::Float64,FluxLimiter::Function,floor::Float64 = 1e-7,kwargs...)
-    U::ParVector2D = ParVector2D{Float64}(Nx,Ny)
-    Uhalf::ParVector2D = ParVector2D{Float64}(Nx,Ny)
-    Phalf::ParVector2D = ParVector2D{Float64}(Nx,Ny)
+    U::ParVector2D = ParVector2D{Float64,Nx,Ny}()
+    Uhalf::ParVector2D = ParVector2D{Float64,Nx,Ny}()
+    Phalf::ParVector2D = ParVector2D{Float64,Nx,Ny}()
 
     #CL::MVector{N+1,Float64} = @MVector zeros(N+1) #left sound speed
     #CR::MVector{N+1,Float64} = @MVector zeros(N+1) #right sound speed
 
-    PR::ParVector2D = ParVector2D{Float64}(Nx,Ny) #Left primitive variable 
-    PL::ParVector2D = ParVector2D{Float64}(Nx,Ny) #Right primitive variable
-    PU::ParVector2D = ParVector2D{Float64}(Nx,Ny) #up primitive variable 
-    PD::ParVector2D = ParVector2D{Float64}(Nx,Ny) #down primitive variable
+    PR::ParVector2D = ParVector2D{Float64,Nx,Ny}() #Left primitive variable 
+    PL::ParVector2D = ParVector2D{Float64,Nx,Ny}() #Right primitive variable
+    PU::ParVector2D = ParVector2D{Float64,Nx,Ny}() #up primitive variable 
+    PD::ParVector2D = ParVector2D{Float64,Nx,Ny}() #down primitive variable
     
-    UL::ParVector2D = ParVector2D{Float64}(Nx,Ny)
-    UR::ParVector2D = ParVector2D{Float64}(Nx,Ny)
-    UU::ParVector2D = ParVector2D{Float64}(Nx,Ny)  
-    UD::ParVector2D = ParVector2D{Float64}(Nx,Ny) 
+    UL::ParVector2D = ParVector2D{Float64,Nx,Ny}()
+    UR::ParVector2D = ParVector2D{Float64,Nx,Ny}()
+    UU::ParVector2D = ParVector2D{Float64,Nx,Ny}()  
+    UD::ParVector2D = ParVector2D{Float64,Nx,Ny}() 
 
-    FL::ParVector2D = ParVector2D{Float64}(Nx,Ny) #Left flux
-    FR::ParVector2D = ParVector2D{Float64}(Nx,Ny) #Right flux
-    FU::ParVector2D = ParVector2D{Float64}(Nx,Ny)  
-    FD::ParVector2D = ParVector2D{Float64}(Nx,Ny) 
+    FL::ParVector2D = ParVector2D{Float64,Nx,Ny}() #Left flux
+    FR::ParVector2D = ParVector2D{Float64,Nx,Ny}() #Right flux
+    FU::ParVector2D = ParVector2D{Float64,Nx,Ny}()  
+    FD::ParVector2D = ParVector2D{Float64,Nx,Ny}() 
 
-    Fx::ParVector2D = ParVector2D{Float64}(Nx,Ny) # HLL flux
-    Fy::ParVector2D = ParVector2D{Float64}(Nx,Ny) # HLL flux
+    Fx::ParVector2D = ParVector2D{Float64,Nx,Ny}() # HLL flux
+    Fy::ParVector2D = ParVector2D{Float64,Nx,Ny}() # HLL flux
 
-    Fxhalf::ParVector2D = ParVector2D{Float64}(Nx,Ny) # HLL flux
-    Fyhalf::ParVector2D = ParVector2D{Float64}(Nx,Ny) # HLL flux
+    Fxhalf::ParVector2D = ParVector2D{Float64,Nx,Ny}() # HLL flux
+    Fyhalf::ParVector2D = ParVector2D{Float64,Nx,Ny}() # HLL flux
 
     t::Float64 = 0
     PtoU(P,U,eos)
@@ -151,6 +169,7 @@ function HARM_HLL(P::ParVector2D,Nx::Int64,Ny::Int64,dt::Float64,dx::Float64,dy:
     out::Vector{ParVector2D} = []
     thres_to_dump::Float64 = drops
     push!(out,deepcopy(P))
+
 
     while t < T
 
