@@ -4,6 +4,7 @@ using Base.Threads
 using Base.Iterators
 using TimerOutputs
 using MPI
+using HDF5
 BLAS.set_num_threads(1)
 
 # Used scheme
@@ -18,79 +19,147 @@ BLAS.set_num_threads(1)
 # P2 = u - energy density
 # P3 = ux four-velocity in x
 # P4 = uy four-velocity in y
+function local_to_global(local_coords, proc_coords, local_dims, grid_dims)
+    """
+    Maps local matrix coordinates to global matrix coordinates.
 
-abstract type FlowArr end
+    Parameters:
+    - local_coords: Tuple (i, j) representing the local (row, column) indices.
+    - proc_coords: Tuple (px, py) representing the process's position in the process grid.
+    - local_dims: Tuple (Nx, Ny) representing the local matrix dimensions.
+    - grid_dims: Tuple (n_x, n_y) representing the number of processes along x and y.
 
+    Returns:
+    - global_coords: Tuple (I, J) representing the global (row, column) indices.
+    """
+    # Unpack parameters
+    i, j = local_coords
+    px, py = proc_coords
+    Nx, Ny = local_dims
+    n_x, n_y = grid_dims
 
-mutable struct ParVector2D_MPI{T <:Real}<:FlowArr
-    # Parameter Vector
-    arr::Array{T,3}
-    arr_L::Array{T,1} #arrays for MPI communication, U is transported!
-    arr_R::Array{T,1}
-    arr_D::Array{T,1}
-    arr_U::Array{T,1}
-    grid_i::Int64
-    grid_j::Int64 # for grid communication
-    size_X::Int64
-    size_Y::Int64
-    part
-    function ParVector2D{T}(Nx,Ny,Num_MPI_i,Num_MPI_j,comm) where {T}
-        arr = zeros(4,Nx+2,Ny+2)
-        @assert Num_MPI_i * Num_MPI_j = size = MPI.Comm_size(comm)
-        partitions = partition(1:Ny+2,div(Ny+2,nthreads()))
-        new(arr,Nx+2,Ny+2,div(MPI.Comm_rank(comm),Num_MPI_j),mod(MPI.Comm_rank(comm),Num_MPI_j),partitions)
-    end
-end
+    # Calculate global coordinates
+    global_i = px * Nx + i
+    global_j = py * Ny + j
 
-mutable struct ParVector2D{T <:Real}<:FlowArr
-    # Parameter Vector
-    arr::Array{T,3}
-    size_X::Int64
-    size_Y::Int64
-    part
-    function ParVector2D{T}(Nx,Ny) where {T}
-        arr = zeros(4,Nx+2,Ny+2)
-        #partitions = partition(1:Ny,nthreads())
-        partitions = partition(1:Ny+2,div(Ny+2,nthreads()))
-        new(arr,Nx+2,Ny+2,partitions)
-    end
+    return (global_i, global_j)
 end
 
 
-function Synchronize(U::FlowArr,comm)
+mutable struct ParVector2D{T <:Real}
+    # Parameter Vector
+    arr::Array{T,3}
+    size_X::Int64
+    size_Y::Int64
+    part
+    function ParVector2D{T}(Nx,Ny,comm) where {T}
+        arr = ones(4,Nx+2,Ny+2)
+        arr[:,1,1] = [1,1,0,0]
+        arr[:,end,1] = [1,1,0,0]
+        arr[:,1,end] = [1,1,0,0]
+        arr[:,end,end] = [1,1,0,0]
+        partitions = partition(2:Ny+1,div(Ny+1,nthreads()))
+        new(arr, Nx+2, Ny+2, partitions)
+    end
+end
+
+
+function SyncBoundaryX(U::ParVector2D,comm)
+    right = U.arr[:,end-1,:]
+    left = U.arr[:,2,:]
+        
+    rightp = U.arr[:,end,:]
+    leftp = U.arr[:,1,:]
+
+    rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
+    rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
+
+
+    #MPI.Sendrecv!(right,leftp,comm,rank_dest_right,0,rank_source_right,0)
+    MPI.Sendrecv!(right,rank_dest_right,0,leftp,rank_source_right,0,comm)
+
+    MPI.Sendrecv!(left,rank_dest_left,1,rightp,rank_source_left,1,comm)
+
+    U.arr[:,end,:] = rightp
+    U.arr[:,1,:] = leftp
+end
+
+function SyncFlux_X_Left(PL::ParVector2D,comm)
+    #we send the left flux to the right boundary
+    mess = PL.arr[:,end-1,:]
+        
+    buff = PL.arr[:,1,:]
+
+    rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
+
+    MPI.Sendrecv!(mess,rank_dest_left,1,buff,rank_source_left,1,comm)
+
+    PL.arr[:,1,:] = buff
+end
+
+function SyncFlux_X_Right(PR::ParVector2D,comm)
+    #we send the right flux to the left boundary
+    mess = PR.arr[:,1,:]
+        
+    buff = PR.arr[:,end-1,:]
+
+    rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
+
+    MPI.Sendrecv!(mess,rank_dest_right,0,buff,rank_source_right,0,comm)
+
+    PR.arr[:,end-1,:] = buff
+end
+
+function SyncFlux_Y_Down(PD::ParVector2D,comm)
+    #we send the left flux to the right boundary
+    mess = PD.arr[:,:,end-1]
+        
+    buff = PD.arr[:,:,1]
+
+    rank_source_left,rank_dest_left = MPI.Cart_shift(comm,1,-1)
+
+    MPI.Sendrecv!(mess,rank_dest_left,1,buff,rank_source_left,1,comm)
+
+    PD.arr[:,:,1] = buff
+end
+
+function SyncFlux_Y_Up(PU::ParVector2D,comm)
+    #we send the right flux to the left boundary
+    mess = PU.arr[:,:,1]
+        
+    buff = PU.arr[:,:,end-1]
+
+    rank_source_right,rank_dest_right = MPI.Cart_shift(comm,1,1)
+
+    MPI.Sendrecv!(mess,rank_dest_right,0,buff,rank_source_right,0,comm)
+
+    PU.arr[:,:,end-1] = buff
+end
+
+
+
+function SyncBoundaryY(U::ParVector2D,comm)
+    up = U.arr[:,:,end-1]
+    down = U.arr[:,:,2]
+        
+    upp = U.arr[:,:,end]
+    downp = U.arr[:,:,1]
+
+    rank_source_up,rank_dest_up = MPI.Cart_shift(comm,1,1)
+    rank_source_down,rank_dest_down = MPI.Cart_shift(comm,1,-1)
+
+
+    MPI.Sendrecv!(up,rank_dest_up,0,downp,rank_source_up,0,comm)
+
+    MPI.Sendrecv!(down,rank_dest_down,1,upp,rank_source_down,1,comm)
+
+    U.arr[:,:,end] = upp
+    U.arr[:,:,1] = downp
     
 end
 
 
 Base.copy(s::ParVector2D) = ParVector2D(s.arr,s.size_X,s.size_Y)
-
-
-mutable struct BufferStruct{T<:Real}
-    #Holding all buffers 
-    Buff_4_1_arr::Vector{MVector{4,T}}
-    Buff_4_2_arr::Vector{MVector{4,T}}
-    Buff_4_3_arr::Vector{MVector{4,T}}
-    Buff_4_4_arr::Vector{MVector{4,T}}
-    Buff_4_5_arr::Vector{MVector{4,T}}
-    Buff_16_arr::Vector{MVector{16,T}}
-    function BufferStruct{T}() where {T}
-        Buff_4_1_arr::Vector{MVector{4,T}} = []
-        Buff_4_2_arr::Vector{MVector{4,T}} = []
-        Buff_4_3_arr::Vector{MVector{4,T}} = []
-        Buff_4_4_arr::Vector{MVector{4,T}} = []
-        Buff_4_5_arr::Vector{MVector{4,T}} = []
-        Buff_16_arr::Vector{MVector{16,T}} = []
-        for i in 1:nthreads()
-            push!(Buff_4_1_arr,@MVector zeros(4))
-            push!(Buff_4_2_arr,@MVector zeros(4))
-            push!(Buff_4_3_arr,@MVector zeros(4))
-            push!(Buff_4_4_arr,@MVector zeros(4))
-            push!(Buff_4_5_arr,@MVector zeros(4))
-            push!(Buff_16_arr,@MVector zeros(16))
-        end
-        new(Buff_4_1_arr,Buff_4_2_arr,Buff_4_3_arr,Buff_4_4_arr,Buff_4_5_arr,Buff_16_arr)
-    end
-end
 
 
 function Jacobian(x::AbstractVector,buffer::AbstractVector,eos::Polytrope)
@@ -145,72 +214,41 @@ function function_PtoFy(x::AbstractVector, buffer::AbstractVector,eos::Polytrope
 end
 
 function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
-    @sync for (id_th,chunk) in enumerate(P.part)
-        @spawn begin
-            buffer::MVector{4,Float64} = @MVector zeros(4)
-            bufferp::MVector{4,Float64} = @MVector zeros(4)
-            for j in chunk
-                for i in 1:P.size_X
-                    for idx in 1:4
-                        bufferp[idx] = P.arr[idx,i,j] 
-                    end
-                    function_PtoFx(bufferp,buffer,eos)
-                    Fx.arr[1,i,j] = buffer[1]
-                    Fx.arr[2,i,j] = buffer[2]
-                    Fx.arr[3,i,j] = buffer[3]
-                    Fx.arr[4,i,j] = buffer[4]
-                end
-            end
+    @threads :static for j in 2:P.size_Y-1
+        for i in 2:P.size_X-1
+            bufferp = @view P.arr[:,i,j]
+            buffer = @view Fx.arr[:,i,j]
+            function_PtoFx(bufferp,buffer,eos)
         end
     end
 end
 
 function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
-    @sync for (id_th,chunk) in enumerate(P.part)
-        @spawn begin
-            buffer::MVector{4,Float64} = @MVector zeros(4)
-            bufferp::MVector{4,Float64} = @MVector zeros(4)
-            for j in chunk
-                for i in 1:P.size_X
-                    for idx in 1:4
-                        bufferp[idx] = P.arr[idx,i,j] 
-                    end
-                    function_PtoFy(bufferp,buffer,eos)
-                    Fy.arr[1,i,j] = buffer[1]
-                    Fy.arr[2,i,j] = buffer[2]
-                    Fy.arr[3,i,j] = buffer[3]
-                    Fy.arr[4,i,j] = buffer[4]
-                end
-            end
+    @threads :static for j in 2:P.size_Y-1
+        for i in 2:P.size_X-1
+            bufferp = @view P.arr[:,i,j]
+            buffer = @view Fy.arr[:,i,j]
+            function_PtoFy(bufferp,buffer,eos)
         end
     end
 end
 
+
 function PtoU(P::ParVector2D,U::ParVector2D,eos::EOS)
-    @sync for (id_th,chunk) in enumerate(P.part)
-        @spawn begin
-            buffer::MVector{4,Float64} = @MVector zeros(4)
-            bufferp::MVector{4,Float64} = @MVector zeros(4)
-            for j in chunk
-                for i in 1:P.size_X
-                    for idx in 1:4
-                        bufferp[idx] = P.arr[idx,i,j] 
-                    end
-                    function_PtoU(bufferp,buffer,eos)
-                    U.arr[1,i,j] = buffer[1]
-                    U.arr[2,i,j] = buffer[2]
-                    U.arr[3,i,j] = buffer[3]
-                    U.arr[4,i,j] = buffer[4]
-                end
-            end
+    @threads :static for j in 1:P.size_Y
+        for i in 1:P.size_X
+            bufferp = @view P.arr[:,i,j]
+            buffer = @view U.arr[:,i,j]
+            function_PtoU(bufferp,buffer,eos)
         end
     end
 end
+
 
 
 function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x::MVector{4,Float64})
 
-    function index(i, j)
+    @inline function index(i, j)
         return (j - 1) * 4 + i
     end
 
@@ -248,7 +286,7 @@ function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=
             buff_fun::MVector{4,Float64} = @MVector zeros(4)
             buff_jac::MVector{16,Float64} = @MVector zeros(16)
             for j in chunk
-                for i in 1:P.size_X
+                for i in 2:P.size_X-1
                     buff_start[1] = P.arr[1,i,j]
                     buff_start[2] = P.arr[2,i,j]
                     buff_start[3] = P.arr[3,i,j] 
@@ -281,6 +319,4 @@ function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=
             end
         end
     end
-
 end
-

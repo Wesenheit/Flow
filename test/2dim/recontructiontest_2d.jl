@@ -10,13 +10,12 @@ P.arr[1,:,:] = P.arr[1,:,:,] .+ 10
 P.arr[2,:,:] = P.arr[2,:,:] .+ 20
 P.arr[3,:,:] = P.arr[3,:,:] .+ 11.0  
 P.arr[4,:,:] = P.arr[4,:,:] .+ 5.0
-P.arr[:,:,:] += randn(4,Nx,Ny)/10
 
 @btime Flow2D.PtoU(P,U,eos)
 Pprim = deepcopy(P)
-P.arr = P.arr .+ randn(4,Nx,Ny)
+P.arr = P.arr + randn(4,Nx,Ny)
 
-@btime @inbounds Flow2D.UtoP(U,P,eos,10,1e-5)
+@btime @inbounds Flow2D.UtoP(U,P,eos,20,1e-5)
 
 println(mean(abs.(P.arr[:,:,1] .- Pprim.arr[:,:,1])))
 println(mean(abs.(P.arr[:,:,2] .- Pprim.arr[:,:,2])))

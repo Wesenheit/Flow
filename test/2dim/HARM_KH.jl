@@ -6,8 +6,8 @@ using Printf
 
 include("../../src/2dim/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
-Nx = 500
-Ny = 500
+Nx = 1000
+Ny = 1000
 P = Flow2D.ParVector2D{Float64}(Nx,Ny)
 
 uinf = 0.3
@@ -51,7 +51,7 @@ pinthreads(:cores)
 threadinfo(;)
 
 t1 = time()
-out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
+@time out = Flow2D.HARM_HLL(P,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
 elapsed_time = time() - t1;
 println("Elapsed time: ", elapsed_time, " seconds");
 

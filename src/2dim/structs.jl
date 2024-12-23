@@ -35,24 +35,6 @@ end
 Base.copy(s::ParVector2D) = ParVector2D(s.arr,s.size_X,s.size_Y)
 
 
-mutable struct BufferStruct{T<:Real}
-    #Holding all buffers 
-    Buff_4_1_arr::Vector{MVector{4,T}}
-    Buff_4_2_arr::Vector{MVector{4,T}}
-    Buff_16_arr::Vector{MVector{16,T}}
-    function BufferStruct{T}() where {T}
-        Buff_4_1_arr::Vector{MVector{4,T}} = []
-        Buff_4_2_arr::Vector{MVector{4,T}} = []
-        Buff_16_arr::Vector{MVector{16,T}} = []
-        for i in 1:nthreads()
-            push!(Buff_4_1_arr,@MVector zeros(4))
-            push!(Buff_4_2_arr,@MVector zeros(4))
-            push!(Buff_16_arr,@MVector zeros(16))
-        end
-        new(Buff_4_1_arr,Buff_4_2_arr,Buff_16_arr)
-    end
-end
-
 
 function Jacobian(x::AbstractVector,buffer::AbstractVector,eos::Polytrope)
     gam::Float64 = sqrt(1 + x[3]^2 + x[4]^2) ### gamma factor
@@ -116,15 +98,11 @@ function PtoFx(P::ParVector2D,Fx::ParVector2D,eos::EOS)
 end
 
 function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
-    @sync for (id_th,chunk) in enumerate(P.part)
-        @spawn begin
-            for j in chunk
-                for i in 1:P.size_X
-                    bufferp = @view P.arr[:,i,j]
-                    buffer = @view Fy.arr[:,i,j]
-                    function_PtoFy(bufferp,buffer,eos)
-                end
-            end
+    @threads :static for j in 1:P.size_Y
+        for i in 1:P.size_X
+            bufferp = @view P.arr[:,i,j]
+            buffer = @view Fy.arr[:,i,j]
+            function_PtoFy(bufferp,buffer,eos)
         end
     end
 end
@@ -144,7 +122,7 @@ end
 
 function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x::MVector{4,Float64})
 
-    function index(i, j)
+    @inline function index(i, j)
         return (j - 1) * 4 + i
     end
 
@@ -174,45 +152,6 @@ function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x
     end
 end
 
-"""
-function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,buff::BufferStruct,n_iter::Int64,tol::Float64=1e-10)
-    @sync for (id_th,chunk) in enumerate(P.part)
-        @spawn begin
-            #buff_start::MVector{4,Float64} = @MVector zeros(4)
-            #buff_out::MVector{4,Float64} = @MVector zeros(4)
-            #buff_fun::MVector{4,Float64} = @MVector zeros(4)
-            #buff_jac::MVector{16,Float64} = @MVector zeros(16)
-            for j in chunk
-                for i in 1:P.size_X
-                    buff_start = @view P.arr[:,i,j]
-                    for _ in 1:n_iter
-                        function_PtoU(buff_start,buff.Buff_4_1_arr[id_th],eos)
-                        Jacobian(buff_start,buff.Buff_16_arr[id_th],eos)
-                        buff.Buff_4_1_arr[id_th][1] = buff.Buff_4_1_arr[id_th][1] - U.arr[1,i,j]
-                        buff.Buff_4_1_arr[id_th][2] = buff.Buff_4_1_arr[id_th][2] - U.arr[2,i,j]
-                        buff.Buff_4_1_arr[id_th][3] = buff.Buff_4_1_arr[id_th][3] - U.arr[3,i,j]
-                        buff.Buff_4_1_arr[id_th][4] = buff.Buff_4_1_arr[id_th][4] - U.arr[4,i,j]
-                        
-                        LU_dec!(buff.Buff_16_arr[id_th],buff.Buff_4_1_arr[id_th],buff.Buff_4_2_arr[id_th])
-                        #mat = lu!(reshape(buff_jac,4,4))
-                        #ldiv!(buff_out,mat,buff_fun)
-        
-                        if sqrt(buff.Buff_4_2_arr[id_th][1]^2 + buff.Buff_4_2_arr[id_th][2]^2 + buff.Buff_4_2_arr[id_th][3]^2 + buff.Buff_4_2_arr[id_th][4]^2) < tol
-                            break
-                        end
-                        buff_start[1] = buff_start[1] - buff.Buff_4_2_arr[id_th][1]
-                        buff_start[2] = buff_start[2] - buff.Buff_4_2_arr[id_th][2]
-                        buff_start[3] = buff_start[3] - buff.Buff_4_2_arr[id_th][3]
-                        buff_start[4] = buff_start[4] - buff.Buff_4_2_arr[id_th][4]
-                    end
-                end
-            end
-        end
-    end
-end
-
-
-"""
 function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
     @sync for (id_th,chunk) in enumerate(P.part)
         @spawn begin
