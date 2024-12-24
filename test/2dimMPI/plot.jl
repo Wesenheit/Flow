@@ -1,13 +1,12 @@
 using CairoMakie 
 using HDF5
-num=1800
-idx = 3
+num=300
+idx = 2
 
 min_val = 1000
 max_val = -1000
-"""
 for i in 1:num
-    data = h5open("dump"*string(i)*".h5")
+    data = h5open("dump"*string(i)*".h5","r")
     if maximum(data["data"][idx,:,:]) > max_val
         global max_val = maximum(data["data"][1,:,:])
     end
@@ -16,15 +15,12 @@ for i in 1:num
     end
     close(data)
 end
-"""
-min_val = -1
-max_val = 1
 
 fig = Figure(size = (1920, 1080))
 ax = Axis(fig[1, 1], title = "Kelvin-Helmholtz instability", xlabel = "X", ylabel = "Y")
 
 data = h5open("dump1.h5","r")
-hm = heatmap!(ax, data["data"][idx,:,:], colorrange = (-1.0, 1.0), colormap = :viridis)
+hm = heatmap!(ax, data["data"][idx,:,:], colorrange = (min_val, max_val), colormap = :viridis)
 
 close(data)
 

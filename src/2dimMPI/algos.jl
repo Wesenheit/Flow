@@ -291,8 +291,6 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
             end
         end
   
-        #display(U.arr[1,:,:])
-        #return
         @inbounds UtoP(U,P,eos,kwargs...) #Conversion to primitive variables
         Limit(P,floor)
 
@@ -322,17 +320,15 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
                 
                 global_matrix = zeros(4,XMPI*Nx,YMPI*Ny)
                 for p in 0:(size-1)
-                    px, py = divrem(p, YMPI)  # Determine the position in the process grid
+                    px,py = MPI.Cart_coords(comm,p)
                     start_x = px * Nx + 1
                     start_y = py * Ny + 1
                     local_start = p * length(flat) + 1
                     local_end = local_start + length(flat) - 1
                     
-                    # Reshape and place local data into global matrix
                     global_matrix[:, start_x:start_x+Nx-1, start_y:start_y+Ny-1] = 
                         reshape(recvbuf[local_start:local_end], 4, Nx, Ny)
                 end
-                #global_matrix = permutedims(reshape(recvbuf, (4,XMPI*Nx,YMPI*Ny)),[1,2,3])   
                 file = h5open("dump"*string(i)*".h5","w")
                 write(file,"data",global_matrix)
                 write(file,"T",t)

@@ -20,18 +20,6 @@ BLAS.set_num_threads(1)
 # P3 = ux four-velocity in x
 # P4 = uy four-velocity in y
 function local_to_global(local_coords, proc_coords, local_dims, grid_dims)
-    """
-    Maps local matrix coordinates to global matrix coordinates.
-
-    Parameters:
-    - local_coords: Tuple (i, j) representing the local (row, column) indices.
-    - proc_coords: Tuple (px, py) representing the process's position in the process grid.
-    - local_dims: Tuple (Nx, Ny) representing the local matrix dimensions.
-    - grid_dims: Tuple (n_x, n_y) representing the number of processes along x and y.
-
-    Returns:
-    - global_coords: Tuple (I, J) representing the global (row, column) indices.
-    """
     # Unpack parameters
     i, j = local_coords
     px, py = proc_coords
@@ -74,11 +62,9 @@ function SyncBoundaryX(U::ParVector2D,comm)
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
 
+    MPI.Sendrecv!(right,rank_source_right,0,leftp,rank_dest_right,0,comm)
 
-    #MPI.Sendrecv!(right,leftp,comm,rank_dest_right,0,rank_source_right,0)
-    MPI.Sendrecv!(right,rank_dest_right,0,leftp,rank_source_right,0,comm)
-
-    MPI.Sendrecv!(left,rank_dest_left,1,rightp,rank_source_left,1,comm)
+    MPI.Sendrecv!(left,rank_source_left,1,rightp,rank_dest_left,1,comm)
 
     U.arr[:,end,:] = rightp
     U.arr[:,1,:] = leftp
@@ -92,7 +78,7 @@ function SyncFlux_X_Left(PL::ParVector2D,comm)
 
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
 
-    MPI.Sendrecv!(mess,rank_dest_left,1,buff,rank_source_left,1,comm)
+    MPI.Sendrecv!(mess,rank_source_left,1,buff,rank_dest_left,1,comm)
 
     PL.arr[:,1,:] = buff
 end
@@ -105,7 +91,7 @@ function SyncFlux_X_Right(PR::ParVector2D,comm)
 
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
 
-    MPI.Sendrecv!(mess,rank_dest_right,0,buff,rank_source_right,0,comm)
+    MPI.Sendrecv!(mess,rank_source_right,0,buff,rank_dest_right,0,comm)
 
     PR.arr[:,end-1,:] = buff
 end
@@ -118,7 +104,7 @@ function SyncFlux_Y_Down(PD::ParVector2D,comm)
 
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,1,-1)
 
-    MPI.Sendrecv!(mess,rank_dest_left,1,buff,rank_source_left,1,comm)
+    MPI.Sendrecv!(mess,rank_source_left,1,buff,rank_dest_left,1,comm)
 
     PD.arr[:,:,1] = buff
 end
@@ -131,7 +117,7 @@ function SyncFlux_Y_Up(PU::ParVector2D,comm)
 
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,1,1)
 
-    MPI.Sendrecv!(mess,rank_dest_right,0,buff,rank_source_right,0,comm)
+    MPI.Sendrecv!(mess,rank_source_right,0,buff,rank_dest_right,0,comm)
 
     PU.arr[:,:,end-1] = buff
 end
@@ -149,15 +135,14 @@ function SyncBoundaryY(U::ParVector2D,comm)
     rank_source_down,rank_dest_down = MPI.Cart_shift(comm,1,-1)
 
 
-    MPI.Sendrecv!(up,rank_dest_up,0,downp,rank_source_up,0,comm)
+    MPI.Sendrecv!(up,rank_source_up,0,downp,rank_dest_up,0,comm)
 
-    MPI.Sendrecv!(down,rank_dest_down,1,upp,rank_source_down,1,comm)
+    MPI.Sendrecv!(down,rank_source_down,1,upp,rank_dest_down,1,comm)
 
     U.arr[:,:,end] = upp
     U.arr[:,:,1] = downp
     
 end
-
 
 Base.copy(s::ParVector2D) = ParVector2D(s.arr,s.size_X,s.size_Y)
 

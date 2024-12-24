@@ -7,13 +7,13 @@ using MPI
 
 MPI.Init()
 comm = MPI.COMM_WORLD
-MPI_X = 3
-MPI_Y = 2
-comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(true,true),reorder = true)
+MPI_X = 4
+MPI_Y = 4
+comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(true,true))
 include("../../src/2dimMPI/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
-Nx = 1000
-Ny = 1000
+Nx = 100
+Ny = 100
 P = Flow2D.ParVector2D{Float64}(Nx,Ny,comm)
 tot_X = MPI_X * Nx
 tot_Y = MPI_Y * Ny
@@ -48,7 +48,7 @@ T::Float64 = 30.
 n_it::Int64 = 20.
 tol::Float64 = 1e-6
 fps = 5
-drops = 1/(20*fps)
+drops = 0.1
 floor::Float64 = 1e-5
 KH_par = uinf/(Cs*sqrt(uinf^2+1))
 if MPI.Comm_rank(comm) == 0
