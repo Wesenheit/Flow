@@ -7,10 +7,9 @@ using MPI
 
 MPI.Init()
 comm = MPI.COMM_WORLD
-MPI_X = 2
+MPI_X = 3
 MPI_Y = 2
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(true,true),reorder = true)
-
 include("../../src/2dimMPI/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
 Nx = 1000
@@ -45,12 +44,12 @@ P.arr[4,2:end-1,2:end-1] += randn(Nx,Ny) * uinf * 0.1
 dx::Float64 = 1/Nx
 dy::Float64 = 1/Ny
 dt::Float64 = min(dx,dy)*0.4
-T::Float64 = 10.
+T::Float64 = 30.
 n_it::Int64 = 20.
 tol::Float64 = 1e-6
-fps = 10
-drops = T/(10*fps)
-floor::Float64 = 1e-4
+fps = 5
+drops = 1/(20*fps)
+floor::Float64 = 1e-5
 KH_par = uinf/(Cs*sqrt(uinf^2+1))
 if MPI.Comm_rank(comm) == 0
     println("Courant/c: ",dt/min(dx,dy))
