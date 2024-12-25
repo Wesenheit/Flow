@@ -70,6 +70,27 @@ function SyncBoundaryX(U::ParVector2D,comm)
     U.arr[:,1,:] = leftp
 end
 
+function SyncBoundaryY(U::ParVector2D,comm)
+    up = U.arr[:,:,end-1]
+    down = U.arr[:,:,2]
+        
+    upp = U.arr[:,:,end]
+    downp = U.arr[:,:,1]
+
+    rank_source_up,rank_dest_up = MPI.Cart_shift(comm,1,1)
+    rank_source_down,rank_dest_down = MPI.Cart_shift(comm,1,-1)
+
+
+    MPI.Sendrecv!(up,rank_source_up,0,downp,rank_dest_up,0,comm)
+
+    MPI.Sendrecv!(down,rank_source_down,1,upp,rank_dest_down,1,comm)
+
+    U.arr[:,:,end] = upp
+    U.arr[:,:,1] = downp
+    
+end
+
+
 function SyncFlux_X_Left(PL::ParVector2D,comm)
     #we send the left flux to the right boundary
     mess = PL.arr[:,end-1,:]
@@ -122,27 +143,6 @@ function SyncFlux_Y_Up(PU::ParVector2D,comm)
     PU.arr[:,:,end-1] = buff
 end
 
-
-
-function SyncBoundaryY(U::ParVector2D,comm)
-    up = U.arr[:,:,end-1]
-    down = U.arr[:,:,2]
-        
-    upp = U.arr[:,:,end]
-    downp = U.arr[:,:,1]
-
-    rank_source_up,rank_dest_up = MPI.Cart_shift(comm,1,1)
-    rank_source_down,rank_dest_down = MPI.Cart_shift(comm,1,-1)
-
-
-    MPI.Sendrecv!(up,rank_source_up,0,downp,rank_dest_up,0,comm)
-
-    MPI.Sendrecv!(down,rank_source_down,1,upp,rank_dest_down,1,comm)
-
-    U.arr[:,:,end] = upp
-    U.arr[:,:,1] = downp
-    
-end
 
 Base.copy(s::ParVector2D) = ParVector2D(s.arr,s.size_X,s.size_Y)
 

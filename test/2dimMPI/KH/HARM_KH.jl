@@ -10,7 +10,7 @@ comm = MPI.COMM_WORLD
 MPI_X = 4
 MPI_Y = 4
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(true,true))
-include("../../src/2dimMPI/Flow2D.jl")
+include("../../../src/2dimMPI/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
 Nx = 100
 Ny = 100
