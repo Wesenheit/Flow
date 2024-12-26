@@ -99,14 +99,27 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
     Uhalf::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm)
     Phalf::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm)
 
-    #CL::MVector{N+1,Float64} = @MVector zeros(N+1) #left sound speed
-    #CR::MVector{N+1,Float64} = @MVector zeros(N+1) #right sound speed
-
     PR::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm) #Left primitive variable 
     PL::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm) #Right primitive variable
     PU::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm) #up primitive variable 
     PD::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm) #down primitive variable
+
+    P.arr[:,:,1] .= @view P.arr[:,:,2]
+    P.arr[:,:,end] .= @view P.arr[:,:,end-1]
+    P.arr[:,1,:] .= @view P.arr[:,2,:]
+    P.arr[:,end,:] .= @view P.arr[:,end-1,:]
+
+    PL.arr[:,1,:] .= @view P.arr[:,1,:]
+    PR.arr[:,1,:] .= @view P.arr[:,2,:]
+    PD.arr[:,:,1] .= @view P.arr[:,:,1] 
+    PU.arr[:,:,1] .= @view P.arr[:,:,2] 
     
+    PL.arr[:,end-1,:] .= @view P.arr[:,end-1,:]
+    PR.arr[:,end-1,:] .= @view P.arr[:,end,:]
+    PD.arr[:,:,end-1] .= @view P.arr[:,:,end-1]
+    PU.arr[:,:,end-1] .= @view P.arr[:,:,end]
+    #@inbounds CalculateLinear(Phalf,PL,PR,PD,PU,FluxLimiter)
+
     UL::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm)
     UR::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm)
     UU::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm)  
@@ -295,10 +308,10 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
         Limit(P,floor)
 
         SyncBoundaryX(P,comm)
-        SyncBoundaryX(U,comm)
+        #SyncBoundaryX(U,comm)
 
         SyncBoundaryY(P,comm) 
-        SyncBoundaryY(U,comm) 
+        #SyncBoundaryY(U,comm) 
         t += dt
 
         if t > thres_to_dump
@@ -332,6 +345,7 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
                 file = h5open("dump"*string(i)*".h5","w")
                 write(file,"data",global_matrix)
                 write(file,"T",t)
+                write(file,"grid",[dx,dy])
 
                 close(file)
             end

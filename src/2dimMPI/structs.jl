@@ -41,11 +41,7 @@ mutable struct ParVector2D{T <:Real}
     size_Y::Int64
     part
     function ParVector2D{T}(Nx,Ny,comm) where {T}
-        arr = ones(4,Nx+2,Ny+2)
-        arr[:,1,1] = [1,1,0,0]
-        arr[:,end,1] = [1,1,0,0]
-        arr[:,1,end] = [1,1,0,0]
-        arr[:,end,end] = [1,1,0,0]
+        arr = zeros(4,Nx+2,Ny+2)
         partitions = partition(2:Ny+1,div(Ny+1,nthreads()))
         new(arr, Nx+2, Ny+2, partitions)
     end
