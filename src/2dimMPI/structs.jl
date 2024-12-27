@@ -8,7 +8,7 @@ using HDF5
 BLAS.set_num_threads(1)
 
 # Used scheme
-# U - conserved varaibles
+# U - conserved variables
 # U1 = rho ut - mass conservation
 # U2 = T^t_t - energy conservation
 # U3 = T^t_x - momentum conservation x
@@ -48,95 +48,94 @@ mutable struct ParVector2D{T <:Real}
 end
 
 
-function SyncBoundaryX(U::ParVector2D,comm)
-    right = U.arr[:,end-1,:]
-    left = U.arr[:,2,:]
-        
-    rightp = U.arr[:,end,:]
-    leftp = U.arr[:,1,:]
+function SyncBoundaryX(U::ParVector2D,comm,buff_X_1::AbstractArray,buff_X_2::AbstractArray)
+    buff_X_1 .= @view U.arr[:,end-1,:]    
+    buff_X_2 .= @view U.arr[:,1,:]
 
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
 
-    MPI.Sendrecv!(right,rank_source_right,0,leftp,rank_dest_right,0,comm)
+    MPI.Sendrecv!(buff_X_1,rank_source_right,0,buff_X_2,rank_dest_right,0,comm)
+    U.arr[:,1,:] .= buff_X_2
 
-    MPI.Sendrecv!(left,rank_source_left,1,rightp,rank_dest_left,1,comm)
+    buff_X_1 .= @view U.arr[:,2,:]
+    buff_X_2 .= @view U.arr[:,end,:]
 
-    U.arr[:,end,:] = rightp
-    U.arr[:,1,:] = leftp
+    MPI.Sendrecv!(buff_X_1,rank_source_left,1,buff_X_2,rank_dest_left,1,comm)
+    U.arr[:,end,:] .= buff_X_2
 end
 
-function SyncBoundaryY(U::ParVector2D,comm)
-    up = U.arr[:,:,end-1]
-    down = U.arr[:,:,2]
-        
-    upp = U.arr[:,:,end]
-    downp = U.arr[:,:,1]
+function SyncBoundaryY(U::ParVector2D,comm,buff_Y_1::AbstractArray,buff_Y_2::AbstractArray)
+    buff_Y_1 .= @view U.arr[:,:,end-1]
+    buff_Y_2 .= @view U.arr[:,:,1]
 
     rank_source_up,rank_dest_up = MPI.Cart_shift(comm,1,1)
     rank_source_down,rank_dest_down = MPI.Cart_shift(comm,1,-1)
 
 
-    MPI.Sendrecv!(up,rank_source_up,0,downp,rank_dest_up,0,comm)
+    MPI.Sendrecv!(buff_Y_1,rank_source_up,0,buff_Y_2,rank_dest_up,0,comm)
+    U.arr[:,:,1] .= buff_Y_2
 
-    MPI.Sendrecv!(down,rank_source_down,1,upp,rank_dest_down,1,comm)
+    buff_Y_1 .= @view U.arr[:,:,2]
+    buff_Y_2 .= @view U.arr[:,:,end]
 
-    U.arr[:,:,end] = upp
-    U.arr[:,:,1] = downp
-    
+
+    MPI.Sendrecv!(buff_Y_1,rank_source_down,1,buff_Y_2,rank_dest_down,1,comm)
+
+    U.arr[:,:,end] = buff_Y_2 
 end
 
 
-function SyncFlux_X_Left(PL::ParVector2D,comm)
+function SyncFlux_X_Left(PL::ParVector2D,comm,buff_X_1::AbstractArray,buff_X_2::AbstractArray)
     #we send the left flux to the right boundary
-    mess = PL.arr[:,end-1,:]
+    buff_X_1 .= @view PL.arr[:,end-1,:]
         
-    buff = PL.arr[:,1,:]
+    buff_X_2 .= @view PL.arr[:,1,:]
 
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
 
-    MPI.Sendrecv!(mess,rank_source_left,1,buff,rank_dest_left,1,comm)
+    MPI.Sendrecv!(buff_X_1,rank_source_left,1,buff_X_2,rank_dest_left,1,comm)
 
-    PL.arr[:,1,:] = buff
+    PL.arr[:,1,:] .= buff_X_2
 end
 
-function SyncFlux_X_Right(PR::ParVector2D,comm)
+function SyncFlux_X_Right(PR::ParVector2D,comm,buff_X_1::AbstractArray,buff_X_2::AbstractArray)
     #we send the right flux to the left boundary
-    mess = PR.arr[:,1,:]
+    buff_X_1 .= @view PR.arr[:,1,:]
         
-    buff = PR.arr[:,end-1,:]
+    buff_X_2 .= @view PR.arr[:,end-1,:]
 
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
 
-    MPI.Sendrecv!(mess,rank_source_right,0,buff,rank_dest_right,0,comm)
+    MPI.Sendrecv!(buff_X_1,rank_source_right,0,buff_X_2,rank_dest_right,0,comm)
 
-    PR.arr[:,end-1,:] = buff
+    PR.arr[:,end-1,:] .= buff_X_2
 end
 
-function SyncFlux_Y_Down(PD::ParVector2D,comm)
+function SyncFlux_Y_Down(PD::ParVector2D,comm,buff_Y_1::AbstractArray,buff_Y_2::AbstractArray)
     #we send the left flux to the right boundary
-    mess = PD.arr[:,:,end-1]
+    buff_Y_1 .= @view PD.arr[:,:,end-1]
         
-    buff = PD.arr[:,:,1]
+    buff_Y_2 .= @view PD.arr[:,:,1]
 
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,1,-1)
 
-    MPI.Sendrecv!(mess,rank_source_left,1,buff,rank_dest_left,1,comm)
+    MPI.Sendrecv!(buff_Y_1,rank_source_left,1,buff_Y_2,rank_dest_left,1,comm)
 
-    PD.arr[:,:,1] = buff
+    PD.arr[:,:,1] .= buff_Y_2
 end
 
-function SyncFlux_Y_Up(PU::ParVector2D,comm)
+function SyncFlux_Y_Up(PU::ParVector2D,comm,buff_Y_1::AbstractArray,buff_Y_2::AbstractArray)
     #we send the right flux to the left boundary
-    mess = PU.arr[:,:,1]
+    buff_Y_1 .= @view PU.arr[:,:,1]
         
-    buff = PU.arr[:,:,end-1]
+    buff_Y_2 .= @view PU.arr[:,:,end-1]
 
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,1,1)
 
-    MPI.Sendrecv!(mess,rank_source_right,0,buff,rank_dest_right,0,comm)
+    MPI.Sendrecv!(buff_Y_1,rank_source_right,0,buff_Y_2,rank_dest_right,0,comm)
 
-    PU.arr[:,:,end-1] = buff
+    PU.arr[:,:,end-1] .= buff_Y_2
 end
 
 

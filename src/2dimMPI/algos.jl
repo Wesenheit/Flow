@@ -136,9 +136,13 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
     Fxhalf::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm) # HLL flux
     Fyhalf::ParVector2D = ParVector2D{Float64}(Nx,Ny,comm) # HLL flux
 
+    buff_X_1::Array{Float64,2} = zeros(4,Ny+2)
+    buff_X_2::Array{Float64,2} = zeros(4,Ny+2)
+    buff_Y_1::Array{Float64,2} = zeros(4,Nx+2)
+    buff_Y_2::Array{Float64,2} = zeros(4,Nx+2)
     t::Float64 = 0
-    SyncBoundaryX(P,comm)
-    SyncBoundaryY(P,comm) 
+    SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
+    SyncBoundaryY(P,comm,buff_Y_1,buff_Y_2) 
     PtoU(P,U,eos)
 
     #display(U.arr[3,:,:])
@@ -148,10 +152,10 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
     while t < T
 
         @inbounds CalculateLinear(P,PL,PR,PD,PU,FluxLimiter)
-        SyncFlux_X_Right(PR,comm)
-        SyncFlux_X_Left(PL,comm)
-        SyncFlux_Y_Down(PD,comm)
-        SyncFlux_Y_Up(PU,comm)
+        SyncFlux_X_Right(PR,comm,buff_X_1,buff_X_2)
+        SyncFlux_X_Left(PL,comm,buff_X_1,buff_X_2)
+        SyncFlux_Y_Down(PD,comm,buff_Y_1,buff_Y_2)
+        SyncFlux_Y_Up(PU,comm,buff_Y_1,buff_Y_2)
 
         @inbounds begin
             @threads :static for j in 1:P.size_Y
@@ -233,16 +237,16 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
 
         Limit(Phalf,floor)
 
-        SyncBoundaryX(Phalf,comm)   
-        SyncBoundaryY(Phalf,comm)   
+        SyncBoundaryX(Phalf,comm,buff_X_1,buff_X_1)   
+        SyncBoundaryY(Phalf,comm,buff_Y_1,buff_Y_2)   
 
 
         @inbounds CalculateLinear(Phalf,PL,PR,PD,PU,FluxLimiter)
 
-        SyncFlux_X_Right(PR,comm)
-        SyncFlux_X_Left(PL,comm)
-        SyncFlux_Y_Down(PD,comm)
-        SyncFlux_Y_Up(PU,comm)
+        SyncFlux_X_Right(PR,comm,buff_X_1,buff_X_2)
+        SyncFlux_X_Left(PL,comm,buff_X_1,buff_X_2)
+        SyncFlux_Y_Down(PD,comm,buff_Y_1,buff_Y_2)
+        SyncFlux_Y_Up(PU,comm,buff_Y_1,buff_Y_2)
 
         @inbounds begin
             @threads :static for j in 1:P.size_Y-1
@@ -307,11 +311,8 @@ function HARM_HLL(comm,P::ParVector2D,XMPI,YMPI,Nx::Int64,Ny::Int64,dt::Float64,
         @inbounds UtoP(U,P,eos,kwargs...) #Conversion to primitive variables
         Limit(P,floor)
 
-        SyncBoundaryX(P,comm)
-        #SyncBoundaryX(U,comm)
-
-        SyncBoundaryY(P,comm) 
-        #SyncBoundaryY(U,comm) 
+        SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
+        SyncBoundaryY(P,comm,buff_Y_1,buff_Y_2) 
         t += dt
 
         if t > thres_to_dump

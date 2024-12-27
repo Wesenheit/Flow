@@ -7,13 +7,13 @@ using MPI
 
 MPI.Init()
 comm = MPI.COMM_WORLD
-MPI_X = 4
-MPI_Y = 4
+MPI_X = 2
+MPI_Y = 2
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(true,true))
 include("../../../src/2dimMPI/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
-Nx = 100
-Ny = 100
+Nx = 200
+Ny = 200
 P = Flow2D.ParVector2D{Float64}(Nx,Ny,comm)
 tot_X = MPI_X * Nx
 tot_Y = MPI_Y * Ny
@@ -59,7 +59,7 @@ end
 
 
 
-i = Flow2D.HARM_HLL(comm,P,MPI_X,MPI_Y,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
+@time Flow2D.HARM_HLL(comm,P,MPI_X,MPI_Y,Nx,Ny,dt,dx,dy,T,eos,drops,Flow2D.minmod,floor,n_it,tol)
 
 
 MPI.Finalize()
