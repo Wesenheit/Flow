@@ -235,7 +235,7 @@ function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x
     for k in 1:4
         for i in k+1:4
             flat_matrix[index(i, k)] /= flat_matrix[index(k, k)]
-            for j in k+1:4
+            @simd for j in k+1:4
                 flat_matrix[index(i, j)] -= flat_matrix[index(i, k)] * flat_matrix[index(k, j)]
             end
         end

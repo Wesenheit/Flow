@@ -23,12 +23,9 @@ mutable struct ParVector2D{T <:Real}
     arr::Array{T,3}
     size_X::Int64
     size_Y::Int64
-    part
     function ParVector2D{T}(Nx,Ny) where {T}
         arr = zeros(4,Nx,Ny)
-        partitions = partition(1:Ny,div(Ny,nthreads()))
-        @assert length(partitions)==nthreads()
-        new(arr,Nx,Ny,partitions)
+        new(arr,Nx,Ny)
     end
 end
 
@@ -60,7 +57,7 @@ function Jacobian(x::AbstractVector,buffer::AbstractVector,eos::Polytrope)
     buffer[16] = (2 * x[4]^2 + x[3] ^ 2 + 1) / gam * w
 end
 
-function function_PtoU(x::AbstractVector, buffer::AbstractVector,eos::Polytrope)
+function function_PtoU(x::AbstractVector{T}, buffer::AbstractVector{T},eos::Polytrope) where T <: AbstractFloat
     gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
     buffer[1] = gam * x[1]
@@ -69,7 +66,7 @@ function function_PtoU(x::AbstractVector, buffer::AbstractVector,eos::Polytrope)
     buffer[4] = x[4] * gam * w
 end
 
-function function_PtoFx(x::AbstractVector, buffer::AbstractVector,eos::Polytrope)
+function function_PtoFx(x::AbstractVector{T}, buffer::AbstractVector{T},eos::Polytrope) where T <: AbstractFloat
     gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
     buffer[1] = x[1]*x[3]
@@ -78,7 +75,7 @@ function function_PtoFx(x::AbstractVector, buffer::AbstractVector,eos::Polytrope
     buffer[4] = x[3] * x[4] * w 
 end
 
-function function_PtoFy(x::AbstractVector, buffer::AbstractVector,eos::Polytrope)
+function function_PtoFy(x::AbstractVector{T}, buffer::AbstractVector{T},eos::Polytrope) where T <: AbstractFloat
     gam::Float64 = sqrt(x[3]^2 + x[4]^2 + 1)
     w::Float64 = eos.gamma * x[2] + x[1] 
     buffer[1] = x[1]*x[4]
@@ -108,7 +105,7 @@ function PtoFy(P::ParVector2D,Fy::ParVector2D,eos::EOS)
 end
 
 
-function PtoU(P::ParVector2D,U::ParVector2D,eos::EOS)
+function PtoU(P::ParVector2D{T},U::ParVector2D{T},eos::EOS) where T <: AbstractFloat
     @threads :static for j in 1:P.size_Y
         for i in 1:P.size_X
             bufferp = @view P.arr[:,i,j]
@@ -118,7 +115,15 @@ function PtoU(P::ParVector2D,U::ParVector2D,eos::EOS)
     end
 end
 
-
+function PtoU(P::AbstractArray,U::AbstractArray,Nx::Int64,Ny::Int64,eos::EOS)
+    @threads for j in 1:Ny
+        for i in 1:Nx
+            bufferp = @view P[:,i,j]
+            buffer = @view U[:,i,j]
+            function_PtoU(bufferp,buffer,eos)
+        end
+    end
+end
 
 function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x::MVector{4,Float64})
 
@@ -153,7 +158,8 @@ function LU_dec!(flat_matrix::MVector{16,Float64}, target::MVector{4,Float64}, x
 end
 
 function UtoP(U::ParVector2D,P::ParVector2D,eos::EOS,n_iter::Int64,tol::Float64=1e-10)
-    @sync for (id_th,chunk) in enumerate(P.part)
+    part = partition(1:P.size_Y,div(P.size_Y,nthreads()))
+    @sync for (id_th,chunk) in enumerate(part)
         @spawn begin
             buff_start::MVector{4,Float64} = @MVector zeros(4)
             buff_out::MVector{4,Float64} = @MVector zeros(4)

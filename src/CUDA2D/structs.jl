@@ -3,6 +3,7 @@ using StaticArrays
 using Base.Threads
 using Base.Iterators
 using TimerOutputs
+using KernelAbstractions
 using CUDA
 
 # Used scheme
@@ -72,24 +73,20 @@ function Jacobian(x::AbstractVector,buffer::AbstractVector,eos::Polytrope)
     buffer[16] = (2 * x[4]^2 + x[3] ^ 2 + 1) / gam * w
 end
 
-function function_PtoU(P::CuDeviceArray, U::CuDeviceArray,Nx::Int64,Ny::Int64,gamma::Float64)
-    i = (blockIdx().x - 1) * blockDim().x + threadIdx().x
-    j = (blockIdx().y - 1) * blockDim().y + threadIdx().y
-    if i > 1 && j > 1 && i < Nx && j < Ny
-        gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
-        w = gamma * P[2,i,j] + P[1,i,j] 
-        U[1,i,j] = gam * P[1,i,j]
-        U[2,i,j] = (gamma-1) * P[2,i,j] - gam^2 * w
-        U[3,i,j] = P[3,i,j] * gam * w
-        U[4,i,j] = P[4,i,j] * gam * w
-    end
-    return 
+@kernel function function_PtoU(P::AbstractArray, U::AbstractArray,gamma::Float64)
+    i, j = @index(Global, NTuple)
+    gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
+    w = gamma * P[2,i,j] + P[1,i,j] 
+    U[1,i,j] = gam * P[1,i,j]
+    U[2,i,j] = (gamma-1) * P[2,i,j] - gam^2 * w
+    U[3,i,j] = P[3,i,j] * gam * w
+    U[4,i,j] = P[4,i,j] * gam * w
 end
 
 
 
 
-function function_UtoP(P::CuDeviceArray, U::CuDeviceArray,Nx::Int64,Ny::Int64,gamma:Float64,n_iter::Int64,tol::Float64=1e-10)
+function function_UtoP(P::CuDeviceArray, U::CuDeviceArray,gamma::Float64,n_iter::Int64,tol::Float64=1e-10)
     @sync for (id_th,chunk) in enumerate(P.part)
         @spawn begin
             buff_start::MVector{4,Float64} = @MVector zeros(4)
