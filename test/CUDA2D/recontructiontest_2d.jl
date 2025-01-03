@@ -31,3 +31,36 @@ println("CPU")
     PtoU_CPU(P.arr,U.arr,eos.gamma,ndrange = (Nx,Ny))
     KernelAbstractions.synchronize(cpu)
 end
+
+Pprim = deepcopy(P)
+P.arr = P.arr + randn(4,Nx,Ny)/4
+CuP = Flow2D.CuParVector2D{Float64}(P)
+
+n_it = 1
+eps = 1e-5
+
+UtoP_CUDA = Flow2D.function_UtoP(cuda)
+println("CUDA")
+@time begin
+    UtoP_CUDA(CuU.arr,CuP.arr,eos.gamma,n_it,eps,ndrange = (Nx,Ny))
+    KernelAbstractions.synchronize(cuda)
+end
+
+UtoP_CPU = Flow2D.function_UtoP(cpu)
+println("CPU")
+@time begin
+    UtoP_CPU(U.arr,P.arr,eos.gamma,n_it,eps,ndrange = (Nx,Ny))
+    KernelAbstractions.synchronize(cpu)
+end
+println("CUDA accuracy")
+P_from_cuda = Flow2D.ParVector2D{Float64}(CuP)
+println(mean(abs.(P_from_cuda.arr[:,:,1] .- Pprim.arr[:,:,1])))
+println(mean(abs.(P_from_cuda.arr[:,:,2] .- Pprim.arr[:,:,2])))
+println(mean(abs.(P_from_cuda.arr[:,:,3] .- Pprim.arr[:,:,3])))
+println(mean(abs.(P_from_cuda.arr[:,:,4] .- Pprim.arr[:,:,4])))
+
+println("CPU accuracy")
+println(mean(abs.(P.arr[:,:,1] .- Pprim.arr[:,:,1])))
+println(mean(abs.(P.arr[:,:,2] .- Pprim.arr[:,:,2])))
+println(mean(abs.(P.arr[:,:,3] .- Pprim.arr[:,:,3])))
+println(mean(abs.(P.arr[:,:,4] .- Pprim.arr[:,:,4])))

@@ -5,7 +5,8 @@ using Base.Iterators
 using TimerOutputs
 using KernelAbstractions
 using CUDA
-
+using MPI
+using HDF5
 # Used scheme
 # U - conserved varaibles
 # U1 = rho ut - mass conservation
@@ -19,61 +20,61 @@ using CUDA
 # P3 = ux four-velocity in x
 # P4 = uy four-velocity in y
 
+function local_to_global(local_coords, proc_coords, local_dims, grid_dims)
+    # Unpack parameters
+    i, j = local_coords
+    px, py = proc_coords
+    Nx, Ny = local_dims
+    n_x, n_y = grid_dims
+
+    # Calculate global coordinates
+    global_i = px * Nx + i
+    global_j = py * Ny + j
+
+    return (global_i, global_j)
+end
 
 
-mutable struct ParVector2D{T <:Real}
+abstract type FlowArr{T} end
+
+
+mutable struct ParVector2D{T <:Real} <: FlowArr{T}
     # Parameter Vector
     arr::Array{T,3}
     size_X::Int64
     size_Y::Int64
-    part
     function ParVector2D{T}(Nx,Ny) where {T}
-        arr = zeros(4,Nx,Ny)
-        partitions = partition(1:Ny,div(Ny,nthreads()))
-        @assert length(partitions)==nthreads()
-        new(arr,Nx,Ny,partitions)
+        arr = zeros(4,Nx+2,Ny+2)
+        new(arr,Nx+2,Ny+2)
+    end
+    function ParVector2D{T}(arr::FlowArr{T}) where {T}
+        new(Array{T}(arr.arr),arr.size_X,arr.size_Y)
     end
 end
 
-mutable struct CuParVector2D{T <:Real}
+mutable struct CuParVector2D{T <:Real} <: FlowArr{T}
     # Parameter Vector
-    arr::CuArray{T,3}
+    arr::CuArray{T}
     size_X::Int64
     size_Y::Int64
-    function CuParVector2D{T}(arr::ParVector2D{T}) where {T}
-        new(CuArray(arr.arr),arr.size_X,arr.size_Y)
+    function CuParVector2D{T}(arr::FlowArr{T}) where {T}
+        new(CuArray{T}(arr.arr),arr.size_X,arr.size_Y)
+    end
+
+    function CuParVector2D{T}(Nx::Int64,Ny::Int64) where {T}
+        new(CuArray{T}(zeros(4,Nx+2,Ny+2)),Nx+2,Ny+2)
     end
 end
 
-Base.copy(s::ParVector2D) = ParVector2D(s.arr,s.size_X,s.size_Y)
-
-
-
-function Jacobian(x::AbstractVector,buffer::AbstractVector,eos::Polytrope)
-    gam::Float64 = sqrt(1 + x[3]^2 + x[4]^2) ### gamma factor
-    w::Float64 = eos.gamma * x[2] + x[1] ### enthalpy w = p + u + rho
-    buffer[1] = gam
-    buffer[5] = 0
-    buffer[9] = x[1] * x[3] / gam
-    buffer[13] = x[1] * x[4] / gam
-
-    buffer[2] = - gam^2
-    buffer[6] = (eos.gamma - 1) - gam ^2 * eos.gamma
-    buffer[10] = -2 * x[3] * w
-    buffer[14] = -2 * x[4] * w
-
-    buffer[3] = gam * x[3]
-    buffer[7] = gam * x[3] * eos.gamma
-    buffer[11] = (2 * x[3]^2 + x[4]^2 + 1) / gam * w
-    buffer[15] = x[3] * x[4] / gam * w
-
-    buffer[4] = gam * x[4]
-    buffer[8] = gam * x[4] * eos.gamma
-    buffer[12] = x[3] * x[4] / gam * w
-    buffer[16] = (2 * x[4]^2 + x[3] ^ 2 + 1) / gam * w
+function VectorLike(X::FlowArr{T}) where T
+    if typeof(X.arr) <: CuArray
+        return CuParVector2D{T}(X.size_X-2,X.size_Y-2)
+    else
+        return ParVector2D{T}(X.size_X-2,X.size_Y-2)
+    end
 end
 
-@kernel function function_PtoU(P::AbstractArray, U::AbstractArray,gamma::Float64)
+@kernel function function_PtoU(@Const(P::AbstractArray), U::AbstractArray,gamma::Float64)
     i, j = @index(Global, NTuple)
     gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
     w = gamma * P[2,i,j] + P[1,i,j] 
@@ -83,50 +84,102 @@ end
     U[4,i,j] = P[4,i,j] * gam * w
 end
 
+@kernel function function_PtoFx(@Const(P::AbstractArray), Fx::AbstractArray,gamma::Float64)
+    i, j = @index(Global, NTuple)
+    gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
+    w = gamma * P[2,i,j] + P[1,i,j] 
 
-
-
-function function_UtoP(P::CuDeviceArray, U::CuDeviceArray,gamma::Float64,n_iter::Int64,tol::Float64=1e-10)
-    @sync for (id_th,chunk) in enumerate(P.part)
-        @spawn begin
-            buff_start::MVector{4,Float64} = @MVector zeros(4)
-            buff_out::MVector{4,Float64} = @MVector zeros(4)
-            buff_fun::MVector{4,Float64} = @MVector zeros(4)
-            buff_jac::MVector{16,Float64} = @MVector zeros(16)
-            for j in chunk
-                for i in 1:P.size_X
-                    buff_start[1] = P.arr[1,i,j]
-                    buff_start[2] = P.arr[2,i,j]
-                    buff_start[3] = P.arr[3,i,j] 
-                    buff_start[4] = P.arr[4,i,j]
-                    for _ in 1:n_iter
-                        function_PtoU(buff_start,buff_fun,eos)
-                        Jacobian(buff_start,buff_jac,eos)
-                        buff_fun[1] = buff_fun[1] - U.arr[1,i,j]
-                        buff_fun[2] = buff_fun[2] - U.arr[2,i,j]
-                        buff_fun[3] = buff_fun[3] - U.arr[3,i,j]
-                        buff_fun[4] = buff_fun[4] - U.arr[4,i,j]
-                        
-                        LU_dec!(buff_jac,buff_fun,buff_out)
-                        #mat = lu!(reshape(buff_jac,4,4))
-                        #ldiv!(buff_out,mat,buff_fun)
-        
-                        if sqrt(buff_out[1]^2 + buff_out[2]^2 + buff_out[3]^2 + buff_out[4]^2) < tol
-                            break
-                        end
-                        buff_start[1] = buff_start[1] - buff_out[1]
-                        buff_start[2] = buff_start[2] - buff_out[2]
-                        buff_start[3] = buff_start[3] - buff_out[3]
-                        buff_start[4] = buff_start[4] - buff_out[4]
-                    end
-                    P.arr[1,i,j] = buff_start[1]
-                    P.arr[2,i,j] = buff_start[2]
-                    P.arr[3,i,j] = buff_start[3]
-                    P.arr[4,i,j] = buff_start[4]
-                end
-            end
-        end
-    end
+    Fx[1,i,j] = P[1,i,j]*P[3,i,j]
+    Fx[2,i,j] = - w *P[3,i,j] * gam
+    Fx[3,i,j] = P[3,i,j]^2 * w + (gamma - 1) * P[2,i,j]
+    Fx[4,i,j] = P[3,i,j] * P[4,i,j] * w 
 end
 
 
+@kernel function function_PtoFy(@Const(P::AbstractArray), Fy::AbstractArray,gamma::Float64)
+    i, j = @index(Global, NTuple)
+    gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
+    w = gamma * P[2,i,j] + P[1,i,j] 
+    Fy[1,i,j] = P[1,i,j] * P[4,i,j]
+    Fy[2,i,j] = - w *P[4,i,j] * gam
+    Fy[3,i,j] = P[3,i,j] * P[4,i,j] * w 
+    Fy[4,i,j] = P[4,i,j]^2 * w + (gamma - 1) * P[2,i,j]
+end
+
+
+@inline function LU_dec!(flat_matrix::AbstractVector{T}, target::AbstractVector{T}, x::AbstractVector{T}) where T
+
+    @inline function index(i, j)
+        return (j - 1) * 4 + i
+    end
+
+    for k in 1:4
+        for i in k+1:4
+            flat_matrix[index(i, k)] /= flat_matrix[index(k, k)]
+            for j in k+1:4
+                flat_matrix[index(i, j)] -= flat_matrix[index(i, k)] * flat_matrix[index(k, j)]
+            end
+        end
+    end
+
+    # Forward substitution to solve L*y = target (reusing x for y)
+    for i in 1:4
+        x[i] = target[i]
+        for j in 1:i-1
+            x[i] -= flat_matrix[index(i, j)] * x[j]
+        end
+    end
+
+    # Backward substitution to solve U*x = y
+    for i in 4:-1:1
+        for j in i+1:4
+            x[i] -= flat_matrix[index(i, j)] * x[j]
+        end
+        x[i] /= flat_matrix[index(i, i)]
+    end
+end
+
+@kernel function function_UtoP(@Const(U::AbstractArray), P::AbstractArray,gamma::Float64,n_iter::Int64,tol::Float64=1e-10)
+    buff_out = @private eltype(P) 4
+    buff_fun = @private eltype(P) 4
+    buff_jac = @private eltype(P) 16
+    i, j = @index(Global, NTuple)
+
+    for _ in 1:n_iter
+        gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
+        w = gamma * P[2,i,j] + P[1,i,j] 
+        buff_fun[1] = gam * P[1,i,j] - U[1,i,j]
+        buff_fun[2] = (gamma-1) * P[2,i,j] - gam^2 * w - U[2,i,j]
+        buff_fun[3] = P[3,i,j] * gam * w - U[3,i,j]
+        buff_fun[4] = P[4,i,j] * gam * w - U[4,i,j]
+
+        buff_jac[1] = gam
+        buff_jac[5] = 0
+        buff_jac[9] = P[1,i,j] * P[3,i,j] / gam
+        buff_jac[13] = P[1,i,j] * P[4,i,j] / gam
+    
+        buff_jac[2] = - gam^2
+        buff_jac[6] = (gamma - 1) - gam ^2 * gamma
+        buff_jac[10] = -2 * P[3,i,j] * w
+        buff_jac[14] = -2 * P[4,i,j] * w
+    
+        buff_jac[3] = gam * P[3,i,j]
+        buff_jac[7] = gam * P[3,i,j] * gamma
+        buff_jac[11] = (2 * P[3,i,j]^2 + P[4,i,j]^2 + 1) / gam * w
+        buff_jac[15] = P[3,i,j] * P[4,i,j] / gam * w
+    
+        buff_jac[4] = gam * P[4,i,j]
+        buff_jac[8] = gam * P[4,i,j] * gamma
+        buff_jac[12] = P[3,i,j] * P[4,i,j] / gam * w
+        buff_jac[16] = (2 * P[4,i,j]^2 + P[3,i,j] ^ 2 + 1) / gam * w                        
+        LU_dec!(buff_jac,buff_fun,buff_out)
+
+        if sqrt(buff_out[1]^2 + buff_out[2]^2 + buff_out[3]^2 + buff_out[4]^2) < tol
+            break
+        end
+        P[1,i,j] = P[1,i,j] - buff_out[1]
+        P[2,i,j] = P[2,i,j] - buff_out[2]
+        P[3,i,j] = P[3,i,j] - buff_out[3]
+        P[4,i,j] = P[4,i,j] - buff_out[4]
+    end
+end
