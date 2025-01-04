@@ -4,38 +4,20 @@
     P[2,i,j] = max(P[2,i,j],floor)
 end
 
-@kernel function function_Update(U::AbstractArray{T},Ubuff::AbstractArray{T},Fx::AbstractArray{T},Fy::AbstractArray{T},dt::Float64,dx::Float64,dy::Float64) where T
+@kernel function function_Update(U::AbstractArray{T},Ubuff::AbstractArray{T},@Const(Fx::AbstractArray{T}),@Const(Fy::AbstractArray{T}),dt::T,dx::T,dy::T) where T
     i, j = @index(Global, NTuple)
-
-    @uniform Nx,Ny = size(U)
+    Nx,Ny = @ndrange()
     if i > 1 && i < Nx && j>1 && j<Ny
-        for idx in 1:4
-            Ubuff[idx,i,j] = U[idx,i,j] - 0.5*dt/dx * (Fx[idx,i,j] - Fx[idx,i-1,j]) - 0.5 * dt/dy * (Fy[idx,i,j] - Fy[idx,i,j-1])
+        @unroll for idx in 1:4
+            Ubuff[idx,i,j] = U[idx,i,j] - dt/dx * (Fx[idx,i,j] - Fx[idx,i-1,j]) - dt/dy * (Fy[idx,i,j] - Fy[idx,i,j-1])
         end
     end
 end
 
-function minmod(Um1::AbstractArray{T},U::AbstractArray{T},Up1::AbstractArray{T},Out1::AbstractArray{T},Out2::AbstractArray{T}) where T
-    Nx,Ny = size(U)
-    for i in 1:4
-        sp = Up1[i] -U[i]
-        sm = U[i] - Um1[i]
-        ssp = sign.(sp)
-        ssm = sign.(sm)
-        asp = abs(sp)
-        asm = abs(sm)
-        dU = 0.25 * (ssp + ssm) * min(asp,asm)
-        out1[i] = U[i] + dU
-        out2[i] = U[i] - dU
-    end
-end
-
-
 @kernel function function_CalculateLinear(P::AbstractArray{T},PL::AbstractArray{T},PR::AbstractArray{T},PD::AbstractArray{T},PU::AbstractArray{T}) where T
     i, j = @index(Global, NTuple)
-    @uniform Nx,Ny = size(P)
-    if !(i==1 || i==Nx || j == 1 || j ==Ny)
-        
+    Nx,Ny = @ndrange()
+    if i > 1 && i < Nx && j>1 && j<Ny
         sp = @private eltype(P) 4
         sm = @private eltype(P) 4
         ssp = @private eltype(P) 4
@@ -43,7 +25,7 @@ end
         asp = @private eltype(P) 4
         asm = @private eltype(P) 4
         dU = @private eltype(P) 4
-        for idx in 1:4
+        @unroll for idx in 1:4
             sp[idx] = P[idx,i+1,j] - P[idx,i,j]
             sm[idx] = P[idx,i,j] - P[idx,i-1,j]
             ssp[idx] = sign(sp[idx])
@@ -52,10 +34,10 @@ end
             asm[idx] = abs(sm[idx])
             dU[idx] = 0.25 * (ssp[idx] + ssm[idx]) * min(asp[idx],asm[idx])
             PL[idx,i,j] = P[idx,i,j] + dU[idx]
-            PR[idx,i,j] = P[idx,i,j] - dU[idx]
+            PR[idx,i-1,j] = P[idx,i,j] - dU[idx]
         end
 
-        for idx in 1:4
+        @unroll for idx in 1:4
             sp[idx] = P[idx,i,j+1] - P[idx,i,j]
             sm[idx] = P[idx,i,j] - P[idx,i,j-1]
             ssp[idx] = sign(sp[idx])
@@ -64,7 +46,7 @@ end
             asm[idx] = abs(sm[idx])
             dU[idx] = 0.25 * (ssp[idx] + ssm[idx]) * min(asp[idx],asm[idx])
             PD[idx,i,j] = P[idx,i,j] + dU[idx]
-            PU[idx,i,j] = P[idx,i,j] - dU[idx]
+            PU[idx,i,j-1] = P[idx,i,j] - dU[idx]
         end
     end
 end
@@ -75,6 +57,7 @@ end
                             UL::AbstractArray{T},UR::AbstractArray{T},UD::AbstractArray{T},UU::AbstractArray{T},
                             Fx::AbstractArray{T},Fy::AbstractArray{T},gamma::Float64) where T
     i, j = @index(Global, NTuple)
+
     vL = PL[3,i,j] / sqrt(PL[3,i,j]^2 + PL[4,i,j]^2 + 1)
     vR = PR[3,i,j] / sqrt(PR[3,i,j]^2 + PR[4,i,j]^2 + 1)
     vD = PD[4,i,j] / sqrt(PD[3,i,j]^2 + PD[4,i,j]^2 + 1)
@@ -97,29 +80,29 @@ end
     C_min_Y = -min( (vU - sqrt(sigma_S_U * (1-vU^2 + sigma_S_U) )) / (1 + sigma_S_U), (vD - sqrt(sigma_S_D * (1-vD^2 + sigma_S_D)) ) / (1 + sigma_S_D)) # velocity composition
             
     if C_max_X < 0 
-        for idx in 1:4
+        @unroll for idx in 1:4
             Fx[idx,i,j] =  FR[idx,i,j]
         end
     elseif C_min_X < 0 
-        for idx in 1:4
+        @unroll for idx in 1:4
             Fx[idx,i,j] =  FL[idx,i,j] 
         end
     else
-        for idx in 1:4
+        @unroll for idx in 1:4
             Fx[idx,i,j] = ( FR[idx,i,j] * C_min_X + FL[idx,i,j] * C_max_X - C_max_X * C_min_X * (UR[idx,i,j] - UL[idx,i,j])) / (C_max_X + C_min_X)
         end
     end
 
     if C_max_Y < 0 
-        for idx in 1:4
+        @unroll for idx in 1:4
             Fy[idx,i,j] =  FU[idx,i,j]
         end
     elseif C_min_Y < 0 
-        for idx in 1:4
+        @unroll for idx in 1:4
             Fy[idx,i,j] =  FD[idx,i,j]
         end 
     else
-        for idx in 1:4
+        @unroll for idx in 1:4
             Fy[idx,i,j] = ( FU[idx,i,j] * C_min_Y + FD[idx,i,j] * C_max_Y - C_max_Y * C_min_Y * (UU[idx,i,j] - UD[idx,i,j])) / (C_max_Y + C_min_Y)
         end
 
@@ -137,7 +120,6 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     U = VectorLike(P)
     Uhalf = VectorLike(P)
     Phalf = VectorLike(P)
-
     PR = VectorLike(P) #Left primitive variable 
     PL = VectorLike(P) #Right primitive variable
     PU = VectorLike(P) #up primitive variable 
@@ -172,9 +154,6 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     Fx = VectorLike(P) # HLL flux
     Fy = VectorLike(P)# HLL flux
 
-    Fxhalf = VectorLike(P) # HLL flux
-    Fyhalf = VectorLike(P)# HLL flux
-
     buff_X_1::CuArray{Float64,2} = CuArray{Float64}(zeros(4,Ny+2))
     buff_X_2::CuArray{Float64,2} = CuArray{Float64}(zeros(4,Ny+2))
     buff_Y_1::CuArray{Float64,2} = CuArray{Float64}(zeros(4,Nx+2))
@@ -189,10 +168,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     PtoFx = function_PtoFx(backend)
     PtoFy = function_PtoFy(backend)
     CalculateHLLFluxes = function_CalculateHLLFluxes(backend)
-
     CalculateLinear = function_CalculateLinear(backend)
-
-
 
     PtoU(P.arr,U.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
     KernelAbstractions.synchronize(backend)
@@ -202,11 +178,11 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     while t < T
 
         CalculateLinear(P.arr,PL.arr,PR.arr,PD.arr,PU.arr,ndrange = (P.size_X,P.size_Y))
+        KernelAbstractions.synchronize(backend)
         SyncFlux_X_Right(PR,comm,buff_X_1,buff_X_2)
         SyncFlux_X_Left(PL,comm,buff_X_1,buff_X_2)
         SyncFlux_Y_Down(PD,comm,buff_Y_1,buff_Y_2)
         SyncFlux_Y_Up(PU,comm,buff_Y_1,buff_Y_2)
-        KernelAbstractions.synchronize(backend)
 
         Limit(PL.arr,floor,ndrange = (P.size_X,P.size_Y))
         Limit(PR.arr,floor,ndrange = (P.size_X,P.size_Y))
@@ -218,17 +194,22 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         PtoFx(PR.arr,FR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
         PtoFy(PD.arr,FD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
         PtoFy(PU.arr,FU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+        PtoU(PL.arr,UL.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+        PtoU(PR.arr,UR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+        PtoU(PD.arr,UD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+        PtoU(PU.arr,UU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+        KernelAbstractions.synchronize(backend)
 
 
         CalculateHLLFluxes(PL.arr,PR.arr,PD.arr,PU.arr,
                             FL.arr,FR.arr,FD.arr,FU.arr,
                             UL.arr,UR.arr,UD.arr,UU.arr,
                             Fx.arr,Fy.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-
+        
         KernelAbstractions.synchronize(backend)
-
-        Update(U.arr,Uhalf.arr,Fx.arr,Fy.arr,dt,dx,dy,ndrange = (P.size_X,P.size_Y))
-
+        Update(U.arr,Uhalf.arr,Fx.arr,Fy.arr,dt/2.,dx,dy,ndrange = (P.size_X,P.size_Y))
+        KernelAbstractions.synchronize(backend)
+       
         Phalf.arr = copy(P.arr)
 
         UtoP(Uhalf.arr,Phalf.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
@@ -236,18 +217,21 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         KernelAbstractions.synchronize(backend)
 
         Limit(Phalf.arr,floor,ndrange = (P.size_X,P.size_Y))
+        KernelAbstractions.synchronize(backend)
 
         SyncBoundaryX(Phalf,comm,buff_X_1,buff_X_1)   
         SyncBoundaryY(Phalf,comm,buff_Y_1,buff_Y_2)   
 
-
-        CalculateLinear(P.arr,PL.arr,PR.arr,PD.arr,PU.arr,ndrange = (P.size_X,P.size_Y))
+        #####
+        #Start of the second cycle
+        #
+        CalculateLinear(Phalf.arr,PL.arr,PR.arr,PD.arr,PU.arr,ndrange = (P.size_X,P.size_Y))
+        KernelAbstractions.synchronize(backend)
 
         SyncFlux_X_Right(PR,comm,buff_X_1,buff_X_2)
         SyncFlux_X_Left(PL,comm,buff_X_1,buff_X_2)
         SyncFlux_Y_Down(PD,comm,buff_Y_1,buff_Y_2)
         SyncFlux_Y_Up(PU,comm,buff_Y_1,buff_Y_2)
-        KernelAbstractions.synchronize(backend)
 
         Limit(PL.arr,floor,ndrange = (P.size_X,P.size_Y))
         Limit(PR.arr,floor,ndrange = (P.size_X,P.size_Y))
@@ -259,7 +243,10 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         PtoFx(PR.arr,FR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
         PtoFy(PD.arr,FD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
         PtoFy(PU.arr,FU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-
+        PtoU(PL.arr,UL.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+        PtoU(PR.arr,UR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+        PtoU(PD.arr,UD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+        PtoU(PU.arr,UU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
         KernelAbstractions.synchronize(backend)
 
         CalculateHLLFluxes(PL.arr,PR.arr,PD.arr,PU.arr,
@@ -268,16 +255,17 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
                             Fx.arr,Fy.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
 
         KernelAbstractions.synchronize(backend)
-        Update(U.arr,Uhalf.arr,Fx.arr,Fy.arr,dt,dx,dy,ndrange = (P.size_X,P.size_Y))
+        Update(U.arr,U.arr,Fx.arr,Fy.arr,dt,dx,dy,ndrange = (P.size_X,P.size_Y))
         KernelAbstractions.synchronize(backend)
-
+        
         UtoP(U.arr,P.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
         KernelAbstractions.synchronize(backend)
 
         Limit(P.arr,floor,ndrange = (P.size_X,P.size_Y))
+        KernelAbstractions.synchronize(backend)
 
         SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
-        SyncBoundaryY(P,comm,buff_Y_1,buff_Y_2) 
+        SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
         t += dt
 
         if t > thres_to_dump

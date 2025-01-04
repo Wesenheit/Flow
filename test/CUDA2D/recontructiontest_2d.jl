@@ -20,7 +20,7 @@ cuda = KernelAbstractions.get_backend(CuP.arr)
 PtoU_CUDA = Flow2D.function_PtoU(cuda)
 println("CUDA")
 @btime begin
-    PtoU_CUDA(CuP.arr,CuU.arr,eos.gamma,ndrange = (Nx,Ny))
+    PtoU_CUDA(CuP.arr,CuU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
     KernelAbstractions.synchronize(cuda)
 end
 
@@ -28,7 +28,7 @@ cpu = KernelAbstractions.get_backend(P.arr)
 PtoU_CPU = Flow2D.function_PtoU(cpu)
 println("CPU")
 @btime begin
-    PtoU_CPU(P.arr,U.arr,eos.gamma,ndrange = (Nx,Ny))
+    PtoU_CPU(P.arr,U.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
     KernelAbstractions.synchronize(cpu)
 end
 
@@ -42,14 +42,14 @@ eps = 1e-5
 UtoP_CUDA = Flow2D.function_UtoP(cuda)
 println("CUDA")
 @time begin
-    UtoP_CUDA(CuU.arr,CuP.arr,eos.gamma,n_it,eps,ndrange = (Nx,Ny))
+    UtoP_CUDA(CuU.arr,CuP.arr,eos.gamma,n_it,eps,ndrange = (P.size_X,P.size_Y))
     KernelAbstractions.synchronize(cuda)
 end
 
 UtoP_CPU = Flow2D.function_UtoP(cpu)
 println("CPU")
 @time begin
-    UtoP_CPU(U.arr,P.arr,eos.gamma,n_it,eps,ndrange = (Nx,Ny))
+    UtoP_CPU(U.arr,P.arr,eos.gamma,n_it,eps,ndrange = (P.size_Y,P.size_Y))
     KernelAbstractions.synchronize(cpu)
 end
 println("CUDA accuracy")

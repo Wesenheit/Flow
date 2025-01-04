@@ -4,7 +4,6 @@ function SyncBoundaryX(U::FlowArr,comm,buff_X_1::AbstractArray,buff_X_2::Abstrac
 
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
-    println(buff_X_1)
     MPI.Sendrecv!(buff_X_1,rank_source_right,0,buff_X_2,rank_dest_right,0,comm)
     U.arr[:,1,:] .= buff_X_2
 

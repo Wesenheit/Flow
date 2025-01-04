@@ -4,16 +4,18 @@ using ThreadPinning
 using Profile
 using Printf
 using MPI
-
+using MPIPreferences
+MPIPreferences.use_system_binary()
+@assert MPI.has_cuda()
 MPI.Init()
 comm = MPI.COMM_WORLD
 MPI_X = 1
 MPI_Y = 1
-comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(true,true))
+comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(true,true),reorder = true)
 include("../../../src/CUDA2D/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
-Nx = 200
-Ny = 200
+Nx = 1024-2
+Ny = 1024-2
 P = Flow2D.ParVector2D{Float64}(Nx,Ny)
 tot_X = MPI_X * Nx
 tot_Y = MPI_Y * Ny
@@ -44,8 +46,8 @@ P.arr[4,2:end-1,2:end-1] += randn(Nx,Ny) * uinf * 0.1
 dx::Float64 = 1/Nx
 dy::Float64 = 1/Ny
 dt::Float64 = min(dx,dy)*0.4
-T::Float64 = 30.
-n_it::Int64 = 20.
+T::Float64 = 10.
+n_it::Int64 = 30.
 tol::Float64 = 1e-6
 fps = 5
 drops = 0.1
