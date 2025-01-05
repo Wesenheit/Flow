@@ -4,8 +4,7 @@ using ThreadPinning
 using Profile
 using Printf
 using MPI
-using MPIPreferences
-MPIPreferences.use_system_binary()
+
 @assert MPI.has_cuda()
 MPI.Init()
 comm = MPI.COMM_WORLD

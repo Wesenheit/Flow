@@ -75,11 +75,9 @@ function VectorLike(X::FlowArr{T}) where T
     end
 end
 
-@kernel function function_PtoU(@Const(P::AbstractArray), U::AbstractArray,gamma::Float64)
-    i, j = @index(Global, NTuple)
-    
-    Nx,Ny = @ndrange()
-    if true
+@kernel function function_PtoU(@Const(P::AbstractArray{T}), U::AbstractArray{T},gamma::T) where T
+    i, j = @index(Global, NTuple)    
+    @inbounds begin
         gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
         w = gamma * P[2,i,j] + P[1,i,j] 
         U[1,i,j] = gam * P[1,i,j]
@@ -89,11 +87,12 @@ end
     end
 end
 
+
 @kernel function function_PtoFx(@Const(P::AbstractArray), Fx::AbstractArray,gamma::Float64)
     i, j = @index(Global, NTuple)
     
     Nx,Ny = @ndrange()
-    if true
+    @inbounds if true
         gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
         w = gamma * P[2,i,j] + P[1,i,j] 
 

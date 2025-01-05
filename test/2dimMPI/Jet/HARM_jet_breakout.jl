@@ -12,8 +12,8 @@ MPI_Y = 4
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(false,false),reorder = true)
 include("../../../src/2dimMPI/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
-Nx = 500
-Ny = 500
+Nx = 1024
+Ny = 1024
 P = Flow2D.ParVector2D{Float64}(Nx,Ny,comm)
 tot_X = MPI_X * Nx
 tot_Y = MPI_Y * Ny
