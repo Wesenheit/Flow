@@ -1,5 +1,3 @@
-using TimerOutputs
-
 @kernel function function_Limit(P::AbstractArray,floor::Float64)
     i, j = @index(Global, NTuple)
     P[1,i,j] = max(P[1,i,j],floor)
@@ -20,6 +18,7 @@ end
     i, j = @index(Global, NTuple)
     Nx,Ny = @ndrange()
     @inbounds if i > 1 && i < Nx && j>1 && j<Ny
+        """
         sp = @private eltype(P) 4
         sm = @private eltype(P) 4
         ssp = @private eltype(P) 4
@@ -27,6 +26,15 @@ end
         asp = @private eltype(P) 4
         asm = @private eltype(P) 4
         dU = @private eltype(P) 4
+        """
+        sp = @MVector zeros(4)
+        sm = @MVector zeros(4)
+        ssp = @MVector zeros(4)
+        ssm = @MVector zeros(4)
+        asp = @MVector zeros(4)
+        asm = @MVector zeros(4)
+        dU = @MVector zeros(4)
+
         @unroll for idx in 1:4
             sp[idx] = P[idx,i+1,j] - P[idx,i,j]
             sm[idx] = P[idx,i,j] - P[idx,i-1,j]
@@ -174,22 +182,21 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
 
     PtoU(P.arr,U.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
     KernelAbstractions.synchronize(backend)
-    to = TimerOutput()
     thres_to_dump::Float64 = drops
     i::Int64 = 0.
     while t < T
 
-        @timeit to "inter 1" @inbounds begin
+        @inbounds begin
             CalculateLinear(P.arr,PL.arr,PR.arr,PD.arr,PU.arr,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
         end
-        @timeit to "Sync flux 1" @inbounds begin
+        @inbounds begin
             SyncFlux_X_Right(PR,comm,buff_X_1,buff_X_2)
             SyncFlux_X_Left(PL,comm,buff_X_1,buff_X_2)
             SyncFlux_Y_Down(PD,comm,buff_Y_1,buff_Y_2)
             SyncFlux_Y_Up(PU,comm,buff_Y_1,buff_Y_2)
         end
-        @timeit to "limit 1" @inbounds begin
+        @inbounds begin
             Limit(PL.arr,floor,ndrange = (P.size_X,P.size_Y))
             Limit(PR.arr,floor,ndrange = (P.size_X,P.size_Y))
             Limit(PD.arr,floor,ndrange = (P.size_X,P.size_Y))
@@ -197,7 +204,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
             KernelAbstractions.synchronize(backend)
         end
         
-        @timeit to "staggered 1" @inbounds begin
+        @inbounds begin
             PtoFx(PL.arr,FL.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
             PtoFx(PR.arr,FR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
             PtoFy(PD.arr,FD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
@@ -208,7 +215,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
             PtoU(PU.arr,UU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
         end
-        @timeit to "HLL 1" @inbounds begin
+        @inbounds begin
             CalculateHLLFluxes(PL.arr,PR.arr,PD.arr,PU.arr,
                             FL.arr,FR.arr,FD.arr,FU.arr,
                             UL.arr,UR.arr,UD.arr,UU.arr,
@@ -216,64 +223,71 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         
             KernelAbstractions.synchronize(backend)
         end
-        @timeit to "update 1" @inbounds begin
+        @inbounds begin
             Update(U.arr,Uhalf.arr,Fx.arr,Fy.arr,dt/2.,dx,dy,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
         end
 
         Phalf.arr = copy(P.arr)
 
-        @timeit to "UtoP 1" @inbounds begin
+        @inbounds begin
             UtoP(Uhalf.arr,Phalf.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
             KernelAbstractions.synchronize(backend)
+            Limit(Phalf.arr,floor,ndrange = (P.size_X,P.size_Y))
+            KernelAbstractions.synchronize(backend)
         end
-        Limit(Phalf.arr,floor,ndrange = (P.size_X,P.size_Y))
-        KernelAbstractions.synchronize(backend)
         SyncBoundaryX(Phalf,comm,buff_X_1,buff_X_1)   
         SyncBoundaryY(Phalf,comm,buff_Y_1,buff_Y_2)   
 
         #####
         #Start of the second cycle
         #
-        CalculateLinear(Phalf.arr,PL.arr,PR.arr,PD.arr,PU.arr,ndrange = (P.size_X,P.size_Y))
-        KernelAbstractions.synchronize(backend)
-
+        @inbounds begin
+            CalculateLinear(Phalf.arr,PL.arr,PR.arr,PD.arr,PU.arr,ndrange = (P.size_X,P.size_Y))
+            KernelAbstractions.synchronize(backend)
+        end
         SyncFlux_X_Right(PR,comm,buff_X_1,buff_X_2)
         SyncFlux_X_Left(PL,comm,buff_X_1,buff_X_2)
         SyncFlux_Y_Down(PD,comm,buff_Y_1,buff_Y_2)
         SyncFlux_Y_Up(PU,comm,buff_Y_1,buff_Y_2)
+        @inbounds begin
+            Limit(PL.arr,floor,ndrange = (P.size_X,P.size_Y))
+            Limit(PR.arr,floor,ndrange = (P.size_X,P.size_Y))
+            Limit(PD.arr,floor,ndrange = (P.size_X,P.size_Y))
+            Limit(PU.arr,floor,ndrange = (P.size_X,P.size_Y))
+            KernelAbstractions.synchronize(backend)
+        end
+        @inbounds begin
+            PtoFx(PL.arr,FL.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+            PtoFx(PR.arr,FR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+            PtoFy(PD.arr,FD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+            PtoFy(PU.arr,FU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+            PtoU(PL.arr,UL.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+            PtoU(PR.arr,UR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+            PtoU(PD.arr,UD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+            PtoU(PU.arr,UU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+            KernelAbstractions.synchronize(backend)
+        end
 
-        Limit(PL.arr,floor,ndrange = (P.size_X,P.size_Y))
-        Limit(PR.arr,floor,ndrange = (P.size_X,P.size_Y))
-        Limit(PD.arr,floor,ndrange = (P.size_X,P.size_Y))
-        Limit(PU.arr,floor,ndrange = (P.size_X,P.size_Y))
-        KernelAbstractions.synchronize(backend)
-
-        PtoFx(PL.arr,FL.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-        PtoFx(PR.arr,FR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-        PtoFy(PD.arr,FD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-        PtoFy(PU.arr,FU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-        PtoU(PL.arr,UL.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-        PtoU(PR.arr,UR.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-        PtoU(PD.arr,UD.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-        PtoU(PU.arr,UU.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
-        KernelAbstractions.synchronize(backend)
-
-        CalculateHLLFluxes(PL.arr,PR.arr,PD.arr,PU.arr,
+        @inbounds begin
+            CalculateHLLFluxes(PL.arr,PR.arr,PD.arr,PU.arr,
                             FL.arr,FR.arr,FD.arr,FU.arr,
                             UL.arr,UR.arr,UD.arr,UU.arr,
                             Fx.arr,Fy.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
 
-        KernelAbstractions.synchronize(backend)
-        Update(U.arr,U.arr,Fx.arr,Fy.arr,dt,dx,dy,ndrange = (P.size_X,P.size_Y))
-        KernelAbstractions.synchronize(backend)
+            KernelAbstractions.synchronize(backend)
+        end
+        @inbounds begin
+            Update(U.arr,U.arr,Fx.arr,Fy.arr,dt,dx,dy,ndrange = (P.size_X,P.size_Y))
+            KernelAbstractions.synchronize(backend)
+        end
+        @inbounds begin
+            UtoP(U.arr,P.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
+            KernelAbstractions.synchronize(backend)
         
-        UtoP(U.arr,P.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
-        KernelAbstractions.synchronize(backend)
-
-        Limit(P.arr,floor,ndrange = (P.size_X,P.size_Y))
-        KernelAbstractions.synchronize(backend)
-
+            Limit(P.arr,floor,ndrange = (P.size_X,P.size_Y))
+            KernelAbstractions.synchronize(backend)
+        end
         SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
         SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
         t += dt
@@ -294,7 +308,6 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
 
 
             if MPI.Comm_rank(comm) == 0
-                show(to)
                 global_matrix = zeros(4,XMPI*Nx,YMPI*Ny)
                 for p in 0:(size-1)
                     px,py = MPI.Cart_coords(comm,p)

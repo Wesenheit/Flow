@@ -13,8 +13,8 @@ MPI_Y = 1
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(false,false),reorder = true)
 include("../../../src/CUDA2D/Flow2D.jl")
 eos = Flow2D.Polytrope(5.0/3.0)
-Nx = 1024-2
-Ny = 1024-2
+Nx = 8192-2
+Ny = 8192-2
 P = Flow2D.ParVector2D{Float64}(Nx,Ny)
 tot_X = MPI_X * Nx
 tot_Y = MPI_Y * Ny
@@ -75,7 +75,7 @@ end
 drops::Float64 = T/100.
 
 CuP = Flow2D.CuParVector2D{Float64}(P)
-@time Flow2D.HARM_HLL(comm,CuP,MPI_X,MPI_Y,Nx,Ny,dt,dx,dy,T,eos,drops,floor,n_it,tol)
+@time Flow2D.HARM_HLL(comm,CuP,MPI_X,MPI_Y,Nx,Ny,dt,dx,dy,T,eos,drops,floor,ARGS[1],n_it,tol)
 
 
 MPI.Finalize()

@@ -6,7 +6,8 @@ idx = 1
 min_val = 1000
 max_val = -1000
 for i in 1:num
-    data = h5open("dump"*string(i)*".h5","r")
+    println("first ",i)
+    data = h5open(ARGS[1]*"/dump"*string(i)*".h5","r")
     if maximum(data["data"][idx,:,:]) > max_val
         global max_val = maximum(data["data"][1,:,:])
     end
@@ -22,7 +23,7 @@ ax2 = Axis(fig[1, 2], title = "Vy", xlabel = "X", ylabel = "Y")
 
 vel_max = 0.3
 
-data = h5open("dump1.h5","r")
+data = h5open(ARGS[1]*"/dump1.h5","r")
 dx = data["grid"][1]
 dy = data["grid"][2]
 _,X_tot,Y_tot = size(data["data"])
@@ -35,8 +36,8 @@ hm2 = image!(ax2,X,Y,data["data"][4,:,:] ./ gamma, colorrange = (-vel_max, vel_m
 close(data)
 
 record(fig, "Jet_MPI_CUDA.mp4", 1:num; framerate = 3) do i
-    println(i)
-    data = h5open("dump"*string(i)*".h5","r")
+    println("second ",i)
+    data = h5open(ARGS[1]*"/dump"*string(i)*".h5","r")
     hm1[3] = data["data"][idx,:,:]
     gamma = sqrt.(data["data"][3,:,:] .^ 2 + data["data"][4,:,:] .^2 .+ 1.)
     hm2[3] = data["data"][4,:,:] ./ gamma

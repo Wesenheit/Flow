@@ -151,10 +151,14 @@ end
     end
 end
 
-@kernel function function_UtoP(@Const(U::AbstractArray), P::AbstractArray,gamma::Float64,n_iter::Int64,tol::Float64=1e-10)
-    buff_out = @private eltype(P) 4
-    buff_fun = @private eltype(P) 4
-    buff_jac = @private eltype(P) 16
+@kernel function function_UtoP(@Const(U::AbstractArray{T}), P::AbstractArray{T},gamma::T,n_iter::Int64,tol::T=1e-10) where T
+    #buff_out = @private eltype(U) 4
+    #buff_fun = @private eltype(U) 4
+    #buff_jac = @private eltype(U) 16
+    buff_out = @MVector zeros(4)
+    buff_fun = @MVector zeros(4)
+    buff_jac = @MVector zeros(16)
+
     i, j = @index(Global, NTuple)
 
     Nx,Ny = @ndrange()
@@ -198,5 +202,4 @@ end
             P[4,i,j] = P[4,i,j] - buff_out[4]
         end
     end
-    @synchronize
 end
