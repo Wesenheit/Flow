@@ -27,13 +27,13 @@ end
         asm = @private eltype(P) 4
         dU = @private eltype(P) 4
         """
-        sp = @MVector zeros(4)
-        sm = @MVector zeros(4)
-        ssp = @MVector zeros(4)
-        ssm = @MVector zeros(4)
-        asp = @MVector zeros(4)
-        asm = @MVector zeros(4)
-        dU = @MVector zeros(4)
+        sp = @MVector zeros(T,4)
+        sm = @MVector zeros(T,4)
+        ssp = @MVector zeros(T,4)
+        ssm = @MVector zeros(T,4)
+        asp = @MVector zeros(T,4)
+        asm = @MVector zeros(T,4)
+        dU = @MVector zeros(T,4)
 
         @unroll for idx in 1:4
             sp[idx] = P[idx,i+1,j] - P[idx,i,j]
@@ -123,7 +123,7 @@ end
 function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
                                     Nx::Int64,Ny::Int64,
                                     dt::T,dx::T,dy::T,
-                                    T::T,eos::EOS,drops::T,
+                                    Tmax::T,eos::EOS{T},drops::T,
                                     floor::T = 1e-7,out_dir::String = ".",kwargs...) where T
 
     backend = KernelAbstractions.get_backend(P.arr)
@@ -184,7 +184,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     KernelAbstractions.synchronize(backend)
     thres_to_dump::T = drops
     i::Int64 = 0.
-    while t < T
+    while t < Tmax
 
         @inbounds begin
             CalculateLinear(P.arr,PL.arr,PR.arr,PD.arr,PU.arr,ndrange = (P.size_X,P.size_Y))
@@ -224,7 +224,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
             KernelAbstractions.synchronize(backend)
         end
         @inbounds begin
-            Update(U.arr,Uhalf.arr,Fx.arr,Fy.arr,dt/2.,dx,dy,ndrange = (P.size_X,P.size_Y))
+            Update(U.arr,Uhalf.arr,Fx.arr,Fy.arr,dt/2,dx,dy,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
         end
 

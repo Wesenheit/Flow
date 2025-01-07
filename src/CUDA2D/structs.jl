@@ -45,7 +45,7 @@ mutable struct ParVector2D{T <:Real} <: FlowArr{T}
     size_X::Int64
     size_Y::Int64
     function ParVector2D{T}(Nx,Ny) where {T}
-        arr = zeros(4,Nx+2,Ny+2)
+        arr = zeros(T,4,Nx+2,Ny+2)
         new(arr,Nx+2,Ny+2)
     end
     function ParVector2D{T}(arr::FlowArr{T}) where {T}
@@ -63,7 +63,7 @@ mutable struct CuParVector2D{T <:Real} <: FlowArr{T}
     end
 
     function CuParVector2D{T}(Nx::Int64,Ny::Int64) where {T}
-        new(CuArray{T}(zeros(4,Nx+2,Ny+2)),Nx+2,Ny+2)
+        new(CuArray{T}(zeros(T,4,Nx+2,Ny+2)),Nx+2,Ny+2)
     end
 end
 
@@ -155,9 +155,9 @@ end
     #buff_out = @private eltype(U) 4
     #buff_fun = @private eltype(U) 4
     #buff_jac = @private eltype(U) 16
-    buff_out = @MVector zeros(4)
-    buff_fun = @MVector zeros(4)
-    buff_jac = @MVector zeros(16)
+    buff_out = @MVector zeros(T,4)
+    buff_fun = @MVector zeros(T,4)
+    buff_jac = @MVector zeros(T,16)
 
     i, j = @index(Global, NTuple)
 

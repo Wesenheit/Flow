@@ -5,7 +5,7 @@ using Profile
 using Printf
 using MPI
 
-T = Float32
+Type = Float32
 
 @assert MPI.has_cuda()
 MPI.Init()
@@ -14,28 +14,28 @@ MPI_X = 1
 MPI_Y = 1
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(false,false),reorder = true)
 include("../../../src/CUDA2D/Flow2D.jl")
-eos = Flow2D.Polytrope{T}(5.0/3.0)
-Nx = 8192-2
-Ny = 8192-2
-P = Flow2D.ParVector2D{T}(Nx,Ny)
+eos = Flow2D.Polytrope{Type}(5.0/3.0)
+Nx = 2048-2
+Ny = 2048-2
+P = Flow2D.ParVector2D{Type}(Nx,Ny)
 tot_X = MPI_X * Nx
 tot_Y = MPI_Y * Ny
 
 idx,idy=  MPI.Cart_coords(comm)
 
-floor::T = 1e-8
-outer::T = 1e-3
-box_X::T = 50.
-box_Y::T = 100.
-R_max::T = 50.
-R_eng::T = 10.
-Temp::T = 0.
-Rho0::T = 1e-1
-U0::T = 1e-3
-max_rho::T = 10^2
-angle_jet::T = 0.1
-dx::T = 2*box_X / (tot_X)
-dy::T = box_Y/tot_Y
+floor::Type = 1e-8
+outer::Type = 1e-3
+box_X::Type = 50.
+box_Y::Type = 100.
+R_max::Type = 50.
+R_eng::Type = 10.
+Temp::Type = 0.
+Rho0::Type = 1e-1
+U0::Type = 1e-3
+max_rho::Type = 10^2
+angle_jet::Type = 0.1
+dx::Type = 2*box_X / (tot_X)
+dy::Type = box_Y/tot_Y
 
 for i in 1:Nx
     for j in 1:Ny
@@ -67,16 +67,16 @@ for i in 1:Nx
         P.arr[4,i+1,j+1] = uy
     end
 end
-dt::T = min(dx,dy)*0.3
-T::T = box_Y*10
+dt::Type = min(dx,dy)*0.3
+T::Type = box_Y*10
 n_it::Int64 = 20.
-tol::T = 1e-6
+tol::Type = 1e-6
 if MPI.Comm_rank(comm) == 0
     println("dt: ",dt)
 end
-drops::T = T/100.
+drops::Type = T/100.
 
-CuP = Flow2D.CuParVector2D{T}(P)
+CuP = Flow2D.CuParVector2D{Type}(P)
 @time Flow2D.HARM_HLL(comm,CuP,MPI_X,MPI_Y,Nx,Ny,dt,dx,dy,T,eos,drops,floor,ARGS[1],n_it,tol)
 
 

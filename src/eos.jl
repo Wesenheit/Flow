@@ -2,11 +2,11 @@ using LinearAlgebra
 abstract type EOS{T} end
 
 
-struct Polytrope{T} <:EOS
-    gamma::Float64
+struct Polytrope{T} <:EOS{T}
+    gamma::T
 end
 
-function Pressure(u::T,eos::Polytrope{T})::T
+function Pressure(u::T,eos::Polytrope{T})::T where T
     return (eos.gamma-1)*u
 end
 
