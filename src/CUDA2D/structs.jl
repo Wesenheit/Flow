@@ -88,7 +88,7 @@ end
 end
 
 
-@kernel function function_PtoFx(@Const(P::AbstractArray), Fx::AbstractArray,gamma::Float64)
+@kernel function function_PtoFx(@Const(P::AbstractArray{T}), Fx::AbstractArray{T},gamma::T) where T
     i, j = @index(Global, NTuple)
     
     Nx,Ny = @ndrange()
@@ -104,7 +104,7 @@ end
 end
 
 
-@kernel function function_PtoFy(@Const(P::AbstractArray), Fy::AbstractArray,gamma::Float64)
+@kernel function function_PtoFy(@Const(P::AbstractArray{T}), Fy::AbstractArray{T},gamma::T) where T
     i, j = @index(Global, NTuple)
 
     Nx,Ny = @ndrange()

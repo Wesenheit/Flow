@@ -1,4 +1,4 @@
-@kernel function function_Limit(P::AbstractArray,floor::Float64)
+@kernel function function_Limit(P::AbstractArray{T},floor::T) where T
     i, j = @index(Global, NTuple)
     P[1,i,j] = max(P[1,i,j],floor)
     P[2,i,j] = max(P[2,i,j],floor)
@@ -65,7 +65,7 @@ end
 @kernel function function_CalculateHLLFluxes(PL::AbstractArray{T},PR::AbstractArray{T},PD::AbstractArray{T},PU::AbstractArray{T},
                             FL::AbstractArray{T},FR::AbstractArray{T},FD::AbstractArray{T},FU::AbstractArray{T},
                             UL::AbstractArray{T},UR::AbstractArray{T},UD::AbstractArray{T},UU::AbstractArray{T},
-                            Fx::AbstractArray{T},Fy::AbstractArray{T},gamma::Float64) where T
+                            Fx::AbstractArray{T},Fy::AbstractArray{T},gamma::T) where T
     i, j = @index(Global, NTuple)
     @inbounds begin
         vL = PL[3,i,j] / sqrt(PL[3,i,j]^2 + PL[4,i,j]^2 + 1)
@@ -122,9 +122,9 @@ end
 
 function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
                                     Nx::Int64,Ny::Int64,
-                                    dt::Float64,dx::Float64,dy::Float64,
-                                    T::Float64,eos::EOS,drops::Float64,
-                                    floor::Float64 = 1e-7,out_dir::String = ".",kwargs...)
+                                    dt::T,dx::T,dy::T,
+                                    T::T,eos::EOS,drops::T,
+                                    floor::T = 1e-7,out_dir::String = ".",kwargs...) where T
 
     backend = KernelAbstractions.get_backend(P.arr)
     U = VectorLike(P)
@@ -164,11 +164,11 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     Fx = VectorLike(P) # HLL flux
     Fy = VectorLike(P)# HLL flux
 
-    buff_X_1::CuArray{Float64,2} = CuArray{Float64}(zeros(4,Ny+2))
-    buff_X_2::CuArray{Float64,2} = CuArray{Float64}(zeros(4,Ny+2))
-    buff_Y_1::CuArray{Float64,2} = CuArray{Float64}(zeros(4,Nx+2))
-    buff_Y_2::CuArray{Float64,2} = CuArray{Float64}(zeros(4,Nx+2))
-    t::Float64 = 0
+    buff_X_1::CuArray{T,2} = CuArray{T}(zeros(4,Ny+2))
+    buff_X_2::CuArray{T,2} = CuArray{T}(zeros(4,Ny+2))
+    buff_Y_1::CuArray{T,2} = CuArray{T}(zeros(4,Nx+2))
+    buff_Y_2::CuArray{T,2} = CuArray{T}(zeros(4,Nx+2))
+    t::T = 0
     SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
     SyncBoundaryY(P,comm,buff_Y_1,buff_Y_2)
     Limit = function_Limit(backend)
@@ -182,7 +182,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
 
     PtoU(P.arr,U.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
     KernelAbstractions.synchronize(backend)
-    thres_to_dump::Float64 = drops
+    thres_to_dump::T = drops
     i::Int64 = 0.
     while t < T
 
@@ -297,10 +297,10 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
             size = MPI.Comm_size(comm)
 
             thres_to_dump += drops
-            flat = vec(permutedims(Array{Float64}(P.arr[:,2:end-1,2:end-1]),[1,2,3]))
+            flat = vec(permutedims(Array{T}(P.arr[:,2:end-1,2:end-1]),[1,2,3]))
             if MPI.Comm_rank(comm) == 0
                 println(t)
-                recvbuf = zeros(Float64,length(flat) *size)  #
+                recvbuf = zeros(T,length(flat) *size)  #
             else
                 recvbuf = nothing  # Non-root processes don't allocate
             end

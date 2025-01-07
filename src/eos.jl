@@ -1,20 +1,20 @@
 using LinearAlgebra
-abstract type EOS end
+abstract type EOS{T} end
 
 
-struct Polytrope <:EOS
+struct Polytrope{T} <:EOS
     gamma::Float64
 end
 
-function Pressure(u::Float64,eos::Polytrope)::Float64
+function Pressure(u::T,eos::Polytrope{T})::T
     return (eos.gamma-1)*u
 end
 
 
-function SoundSpeed(rho::Float64,u::Float64,eos::Polytrope)::Float64
+function SoundSpeed(rho::T,u::T,eos::Polytrope{T})::T where T
     return sqrt((eos.gamma * (eos.gamma - 1) * u )/(rho + eos.gamma * u))
 end
 
-function SoundSpeed(rho::Float64,u::Float64,gamma::Float64)::Float64
+function SoundSpeed(rho::T,u::T,gamma::T)::T where T
     return sqrt((gamma * (gamma - 1) * u )/(rho + gamma * u))
 end
