@@ -21,18 +21,14 @@ using HDF5
 # P3 = ux four-velocity in x
 # P4 = uy four-velocity in y
 
-function local_to_global(local_coords, proc_coords, local_dims, grid_dims)
-    # Unpack parameters
-    i, j = local_coords
-    px, py = proc_coords
-    Nx, Ny = local_dims
-    n_x, n_y = grid_dims
-
-    # Calculate global coordinates
-    global_i = px * Nx + i
-    global_j = py * Ny + j
-
-    return (global_i, global_j)
+function local_to_global(i,px,Size_X,MPI_X)
+    if px == 0
+        return i
+    elseif px > 0 && px < MPI_X-1 && (px < 3 || px > Size_X-2) 
+        return 0
+    else
+        return i + px * (Size_X - 4)
+    end
 end
 
 
@@ -45,8 +41,8 @@ mutable struct ParVector2D{T <:Real} <: FlowArr{T}
     size_X::Int64
     size_Y::Int64
     function ParVector2D{T}(Nx,Ny) where {T}
-        arr = zeros(T,4,Nx+2,Ny+2)
-        new(arr,Nx+2,Ny+2)
+        arr = zeros(T,4,Nx+4,Ny+4)
+        new(arr,Nx+4,Ny+4)
     end
     function ParVector2D{T}(arr::FlowArr{T}) where {T}
         new(Array{T}(arr.arr),arr.size_X,arr.size_Y)
@@ -63,19 +59,19 @@ mutable struct CuParVector2D{T <:Real} <: FlowArr{T}
     end
 
     function CuParVector2D{T}(Nx::Int64,Ny::Int64) where {T}
-        new(CuArray{T}(zeros(T,4,Nx+2,Ny+2)),Nx+2,Ny+2)
+        new(CuArray{T}(zeros(T,4,Nx+4,Ny+4)),Nx+4,Ny+4)
     end
 end
 
 function VectorLike(X::FlowArr{T}) where T
     if typeof(X.arr) <: CuArray
-        return CuParVector2D{T}(X.size_X-2,X.size_Y-2)
+        return CuParVector2D{T}(X.size_X-4,X.size_Y-4)
     else
-        return ParVector2D{T}(X.size_X-2,X.size_Y-2)
+        return ParVector2D{T}(X.size_X-4,X.size_Y-4)
     end
 end
 
-@kernel function function_PtoU(@Const(P::AbstractArray{T}), U::AbstractArray{T},gamma::T) where T
+@kernel function kernel_PtoU(@Const(P::AbstractArray{T}), U::AbstractArray{T},gamma::T) where T
     i, j = @index(Global, NTuple)    
     @inbounds begin
         gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
@@ -88,34 +84,37 @@ end
 end
 
 
-@kernel function function_PtoFx(@Const(P::AbstractArray{T}), Fx::AbstractArray{T},gamma::T) where T
-    i, j = @index(Global, NTuple)
-    
-    Nx,Ny = @ndrange()
-    @inbounds if true
-        gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
-        w = gamma * P[2,i,j] + P[1,i,j] 
 
-        Fx[1,i,j] = P[1,i,j]*P[3,i,j]
-        Fx[2,i,j] = - w *P[3,i,j] * gam
-        Fx[3,i,j] = P[3,i,j]^2 * w + (gamma - 1) * P[2,i,j]
-        Fx[4,i,j] = P[3,i,j] * P[4,i,j] * w 
-    end
+
+
+@inline function function_PtoU(P::AbstractVector{T}, U::AbstractVector{T},gamma::T) where T
+    gam = sqrt(P[3]^2 + P[4]^2 + 1)
+    w = gamma * P[2] + P[1] 
+    U[1] = gam * P[1]
+    U[2] = (gamma-1) * P[2] - gam^2 * w
+    U[3] = P[3] * gam * w
+    U[4] = P[4] * gam * w
 end
 
 
-@kernel function function_PtoFy(@Const(P::AbstractArray{T}), Fy::AbstractArray{T},gamma::T) where T
-    i, j = @index(Global, NTuple)
+@inline function function_PtoFx(P::AbstractVector{T}, Fx::AbstractVector{T},gamma::T) where T
+    gam = sqrt(P[3]^2 + P[4]^2 + 1)
+    w = gamma * P[2] + P[1] 
 
-    Nx,Ny = @ndrange()
-    if true
-        gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
-        w = gamma * P[2,i,j] + P[1,i,j] 
-        Fy[1,i,j] = P[1,i,j] * P[4,i,j]
-        Fy[2,i,j] = - w *P[4,i,j] * gam
-        Fy[3,i,j] = P[3,i,j] * P[4,i,j] * w 
-        Fy[4,i,j] = P[4,i,j]^2 * w + (gamma - 1) * P[2,i,j]
-    end
+    Fx[1] = P[1] * P[3]
+    Fx[2] = - w *P[3] * gam
+    Fx[3] = P[3]^2 * w + (gamma - 1) * P[2]
+    Fx[4] = P[3] * P[4] * w 
+end
+
+
+@inline function function_PtoFy(P::AbstractArray{T}, Fy::AbstractArray{T},gamma::T) where T
+    gam = sqrt(P[3]^2 + P[4]^2 + 1)
+    w = gamma * P[2] + P[1] 
+    Fy[1] = P[1] * P[4]
+    Fy[2] = - w *P[4] * gam
+    Fy[3] = P[3] * P[4] * w 
+    Fy[4] = P[4]^2 * w + (gamma - 1) * P[2]
 end
 
 
@@ -152,54 +151,70 @@ end
 end
 
 @kernel function function_UtoP(@Const(U::AbstractArray{T}), P::AbstractArray{T},gamma::T,n_iter::Int64,tol::T=1e-10) where T
-    #buff_out = @private eltype(U) 4
-    #buff_fun = @private eltype(U) 4
-    #buff_jac = @private eltype(U) 16
+    i, j = @index(Global, NTuple)
+    il, jl = @index(Local, NTuple)
+    N = @uniform @groupsize()[1]
+    M = @uniform @groupsize()[2]
+    
+    Ploc = @localmem eltype(U) (4,N,M)
+    Uloc = @localmem eltype(U) (4,N,M)
+    #buff_fun = @localmem eltype(U) (4,N,M)
+
+    
+    for idx in 1:4
+        Ploc[idx,il,jl] = P[idx,i,j]
+        Uloc[idx,il,jl] = U[idx,i,j]
+    end
+    @synchronize
+
     buff_out = @MVector zeros(T,4)
     buff_fun = @MVector zeros(T,4)
     buff_jac = @MVector zeros(T,16)
-
-    i, j = @index(Global, NTuple)
-
     Nx,Ny = @ndrange()
-    if i > 1 && i < Nx && j>1 && j<Ny
+
+    if i > 2 && i < Nx-2 && j>2 && j<Ny-1
         for _ in 1:n_iter
-            gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
-            w = gamma * P[2,i,j] + P[1,i,j] 
+            gam = sqrt(Ploc[3,il,jl]^2 + Ploc[4,il,jl]^2 + 1)
+            w = gamma * Ploc[2,il,jl] + Ploc[1,il,jl] 
             
-            buff_fun[1] = gam * P[1,i,j] - U[1,i,j]
-            buff_fun[2] = (gamma-1) * P[2,i,j] - gam^2 * w - U[2,i,j]
-            buff_fun[3] = P[3,i,j] * gam * w - U[3,i,j]
-            buff_fun[4] = P[4,i,j] * gam * w - U[4,i,j]
+            buff_fun[1] = gam * Ploc[1,il,jl] - Uloc[1,il,jl]
+            buff_fun[2] = (gamma-1) * Ploc[2,il,jl] - gam^2 * w - Uloc[2,il,jl]
+            buff_fun[3] = Ploc[3,il,jl] * gam * w - Uloc[3,il,jl]
+            buff_fun[4] = Ploc[4,il,jl] * gam * w - Uloc[4,il,jl]
 
             buff_jac[1] = gam
             buff_jac[5] = 0
-            buff_jac[9] = P[1,i,j] * P[3,i,j] / gam
-            buff_jac[13] = P[1,i,j] * P[4,i,j] / gam
+            buff_jac[9] = Ploc[1,il,jl] * Ploc[3,il,jl] / gam
+            buff_jac[13] = Ploc[1,il,jl] * Ploc[4,il,jl] / gam
     
             buff_jac[2] = - gam^2
             buff_jac[6] = (gamma - 1) - gam ^2 * gamma
-            buff_jac[10] = -2 * P[3,i,j] * w
-            buff_jac[14] = -2 * P[4,i,j] * w
+            buff_jac[10] = -2 * Ploc[3,il,jl] * w
+            buff_jac[14] = -2 * Ploc[4,il,jl] * w
     
-            buff_jac[3] = gam * P[3,i,j]
-            buff_jac[7] = gam * P[3,i,j] * gamma
-            buff_jac[11] = (2 * P[3,i,j]^2 + P[4,i,j]^2 + 1) / gam * w
-            buff_jac[15] = P[3,i,j] * P[4,i,j] / gam * w
+            buff_jac[3] = gam * Ploc[3,il,jl]
+            buff_jac[7] = gam * Ploc[3,il,jl] * gamma
+            buff_jac[11] = (2 * Ploc[3,il,jl]^2 + Ploc[4,il,jl]^2 + 1) / gam * w
+            buff_jac[15] = Ploc[3,il,jl] * Ploc[4,il,jl] / gam * w
     
-            buff_jac[4] = gam * P[4,i,j]
-            buff_jac[8] = gam * P[4,i,j] * gamma
-            buff_jac[12] = P[3,i,j] * P[4,i,j] / gam * w
-            buff_jac[16] = (2 * P[4,i,j]^2 + P[3,i,j] ^ 2 + 1) / gam * w                        
+            buff_jac[4] = gam * Ploc[4,il,jl]
+            buff_jac[8] = gam * Ploc[4,il,jl] * gamma
+            buff_jac[12] = Ploc[3,il,jl] * Ploc[4,il,jl] / gam * w
+            buff_jac[16] = (2 * Ploc[4,il,jl]^2 + Ploc[3,il,jl] ^ 2 + 1) / gam * w                        
+            #view = @view buff_fun[:,il,jl]
             LU_dec!(buff_jac,buff_fun,buff_out)
 
             if sqrt(buff_out[1]^2 + buff_out[2]^2 + buff_out[3]^2 + buff_out[4]^2) < tol
                 break
             end
-            P[1,i,j] = P[1,i,j] - buff_out[1]
-            P[2,i,j] = P[2,i,j] - buff_out[2]
-            P[3,i,j] = P[3,i,j] - buff_out[3]
-            P[4,i,j] = P[4,i,j] - buff_out[4]
+            Ploc[1,il,jl] = Ploc[1,il,jl] - buff_out[1]
+            Ploc[2,il,jl] = Ploc[2,il,jl] - buff_out[2]
+            Ploc[3,il,jl] = Ploc[3,il,jl] - buff_out[3]
+            Ploc[4,il,jl] = Ploc[4,il,jl] - buff_out[4]
         end
+    end
+    @synchronize
+    for idx in 1:4
+        P[idx,i,j] = Ploc[idx,il,jl]
     end
 end

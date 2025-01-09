@@ -15,11 +15,11 @@ MPI_Y = 1
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(false,false),reorder = true)
 include("../../../src/CUDA2D/Flow2D.jl")
 eos = Flow2D.Polytrope{Type}(5.0/3.0)
-Nx = 2048-2
-Ny = 2048-2
+Nx = 2048 - 4
+Ny = 2048 - 4
 P = Flow2D.ParVector2D{Type}(Nx,Ny)
-tot_X = MPI_X * Nx
-tot_Y = MPI_Y * Ny
+tot_X = MPI_X * Nx + 4
+tot_Y = MPI_Y * Ny + 4
 
 idx,idy=  MPI.Cart_coords(comm)
 
@@ -37,9 +37,13 @@ angle_jet::Type = 0.1
 dx::Type = 2*box_X / (tot_X)
 dy::Type = box_Y/tot_Y
 
-for i in 1:Nx
-    for j in 1:Ny
-        i_g,j_g = Flow2D.local_to_global((i,j),(idx,idy),(Nx,Ny),(MPI_X,MPI_Y))
+for i in 1:P.size_X
+    for j in 1:P.size_Y
+        i_g = Flow2D.local_to_global(i,idx,P.size_X,MPI_X)
+        j_g = Flow2D.local_to_global(j,idy,P.size_Y,MPI_Y)
+        if i_g == 0 || j_g == 0 
+            continue
+        end
         X = i_g * dx - box_X
         Y = j_g * dy + R_eng * cos(angle_jet)*0.75
         R = sqrt(X^2+Y^2)
@@ -48,8 +52,8 @@ for i in 1:Nx
         else
             rho = outer
         end
-        P.arr[1,i+1,j+1] = rho*(1 + randn()*5e-2)
-        P.arr[2,i+1,j+1] = U0*(1+randn()*5e-2) #rho * Temp/(eos.gamma - 1)
+        P.arr[1,i,j] = rho*(1 + randn()*5e-2)
+        P.arr[2,i,j] = U0*(1+randn()*5e-2) #rho * Temp/(eos.gamma - 1)
 
         angle = atan(Y,X)
         if R < R_eng && abs(angle-pi/2) < angle_jet
@@ -63,8 +67,8 @@ for i in 1:Nx
             ux = 0
             uy = 0
         end
-        P.arr[3,i+1,j+1] = ux
-        P.arr[4,i+1,j+1] = uy
+        P.arr[3,i,j] = ux
+        P.arr[4,i,j] = uy
     end
 end
 dt::Type = min(dx,dy)*0.3

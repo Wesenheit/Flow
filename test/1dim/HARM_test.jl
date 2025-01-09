@@ -2,8 +2,8 @@ using BenchmarkTools
 using CairoMakie
 using ThreadPinning
 include("../../src/1dim/Flow1D.jl")
-eos = Flow1D.Polytrope(4.0/3.0)
-N = 10000
+eos = Flow1D.Polytrope{Float64}(4.0/3.0)
+N = 500
 P = Flow1D.ParVector1D{Float64,N}()
 for i in 1:div(N,2)
     P.arr1[i] = 1.
@@ -17,7 +17,7 @@ end
 X = LinRange(-0.5,0.5,N) |> collect
 
 dx::Float64 = X[2]-X[1]
-dt::Float64 = 0.000003
+dt::Float64 = 0.4*dx
 println("Courant/c: ",dt/dx)
 T::Float64 = 0.5
 n_it::Int64 = 10.
@@ -44,3 +44,13 @@ for i in 1:length(out)
     lines!(ax_vel, X, out[i].arr3 ./ gamma,color = "black")
 end
 save("HARM_HLL.pdf",f)
+
+
+f = Figure()
+ax = Axis(f[1, 1],title = L"$\rho$")
+for i in 1:length(out)
+    lines!(ax, X, out[i].arr1 |> collect,label = "T = " * string(round((i-1)*drops,sigdigits = 2)))
+end
+f[1, 2] = Legend(f, ax, framevisible = false)
+save("HARM_HLL_prim.pdf",f)
+
