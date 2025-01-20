@@ -5,7 +5,7 @@ using Profile
 using Printf
 using MPI
 
-Type = Float64
+Type = Float32
 
 @assert MPI.has_cuda()
 MPI.Init()
@@ -15,8 +15,8 @@ MPI_Y = 1
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(false,false),reorder = true)
 include("../../../src/CUDA2D/Flow2D.jl")
 eos = Flow2D.Polytrope{Type}(5.0/3.0)
-Nx = 8192 - 4
-Ny = 8192 - 4
+Nx = 2048 - 4
+Ny = 2048 - 4
 P = Flow2D.ParVector2D{Type}(Nx,Ny)
 tot_X = MPI_X * Nx + 4
 tot_Y = MPI_Y * Ny + 4
@@ -71,7 +71,7 @@ for i in 1:P.size_X
         P.arr[4,i,j] = uy
     end
 end
-dt::Type = min(dx,dy)*0.3
+dt::Type = min(dx,dy)
 T::Type = box_Y*10
 n_it::Int64 = 20.
 tol::Type = 1e-6
