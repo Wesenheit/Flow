@@ -217,7 +217,7 @@ end
 
 
 function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
-                                    Nx::Int64,Ny::Int64,
+                                    SizeX::Int64,SizeY::Int64,
                                     dt::T,dx::T,dy::T,
                                     Tmax::T,eos::EOS{T},drops::T,
                                     floor::T = 1e-7,out_dir::String = ".",kwargs...) where T
@@ -232,14 +232,19 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
 
     buff_X_1 = allocate(backend,T,4,2,P.size_Y)
     buff_X_2 = allocate(backend,T,4,2,P.size_Y)
+    buff_X_3 = allocate(backend,T,4,2,P.size_Y)
+    buff_X_4 = allocate(backend,T,4,2,P.size_Y)
     buff_Y_1 = allocate(backend,T,4,P.size_X,2)
     buff_Y_2 = allocate(backend,T,4,P.size_X,2)
+    buff_Y_3 = allocate(backend,T,4,P.size_X,2)
+    buff_Y_4 = allocate(backend,T,4,P.size_X,2)
     t::T = 0
-    SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
-    SyncBoundaryY(P,comm,buff_Y_1,buff_Y_2)
+
+    SendBoundaryX(P,comm,buff_X_1,buff_X_2)
+    SendBoundaryY(P,comm,buff_Y_1,buff_Y_2)
+    WaitForBoundary(P,comm,buff_X_3,buff_X_4,buff_Y_3,buff_Y_4)
+
     Limit = function_Limit(backend)
-    SizeX = 16
-    SizeY = 16
     @assert mod(P.size_X,SizeX) == 0 
     @assert mod(P.size_Y,SizeY) == 0 
     wgX = div(P.size_X,SizeX)
@@ -255,6 +260,9 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     KernelAbstractions.synchronize(backend)
     thres_to_dump::T = drops
     i::Int64 = 0.
+    if MPI.Comm_rank(comm) == 0
+        t0 = time()
+    end
     while t < Tmax
 
         @inbounds begin
@@ -275,8 +283,9 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         end
         
         
-        SyncBoundaryX(Phalf,comm,buff_X_1,buff_X_1)   
-        SyncBoundaryY(Phalf,comm,buff_Y_1,buff_Y_2)   
+        SendBoundaryX(P,comm,buff_X_1,buff_X_2)
+        SendBoundaryY(P,comm,buff_Y_1,buff_Y_2)
+        WaitForBoundary(P,comm,buff_X_3,buff_X_4,buff_Y_3,buff_Y_4)
 
         #####
         #Start of the second cycle
@@ -299,17 +308,24 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
             Limit(P.arr,floor,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
         end
-        SyncBoundaryX(P,comm,buff_X_1,buff_X_2)
-        SyncBoundaryY(P,comm,buff_Y_1,buff_Y_2)
+        
+        SendBoundaryX(P,comm,buff_X_1,buff_X_2)
+        SendBoundaryY(P,comm,buff_Y_1,buff_Y_2)
+        WaitForBoundary(P,comm,buff_X_3,buff_X_4,buff_Y_3,buff_Y_4)
+        
         t += dt
         if t > thres_to_dump
             i+=1
-            size = MPI.Comm_size(comm)
-
+            #increase the threshold to dump
             thres_to_dump += drops
-            flat = vec(permutedims(Array{T}(P.arr),[1,2,3]))
+
+            #start the boundary transport
+            size = MPI.Comm_size(comm)
+            
+            flat = vec(permutedims(Array{T}(P.arr[:,3:end-2,3:end-2]),[1,2,3]))
             if MPI.Comm_rank(comm) == 0
-                println(t)
+                println(t," elapsed: ",time() - t0, " s")
+                t0 = time()
                 recvbuf = zeros(T,length(flat) *size)  #
             else
                 recvbuf = nothing  # Non-root processes don't allocate
@@ -318,20 +334,17 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
 
 
             if MPI.Comm_rank(comm) == 0
-                global_matrix = zeros(4,XMPI*P.size_X,YMPI*P.size_Y)
+                global_matrix = zeros(4,XMPI * (P.size_X - 4),YMPI * (P.size_Y - 4))
                 for p in 0:(size-1)
                     px,py = MPI.Cart_coords(comm,p)
-                    start_x = px * P.size_X + 1
-                    start_y = py * P.size_Y + 1
+                    start_x = px * (P.size_X - 4) + 1
+                    start_y = py * (P.size_Y - 4) + 1
                     local_start = p * length(flat) + 1
                     local_end = local_start + length(flat) - 1
                     
-                    global_matrix[:, start_x:start_x+P.size_X-1, start_y:start_y+P.size_Y-1] = 
-                        reshape(recvbuf[local_start:local_end], 4, P.size_X, P.size_Y)
+                    global_matrix[:, start_x:start_x+(P.size_X - 4)-1, start_y:start_y+(P.size_Y - 4)-1] = 
+                        reshape(recvbuf[local_start:local_end], 4, P.size_X-4, P.size_Y-4)
                 end
-                ###
-                ## TODO remove the ghost nodes transported from the data
-                ###
                 file = h5open(out_dir * "/dump"*string(i)*".h5","w")
                 write(file,"data",global_matrix)
                 write(file,"T",t)
