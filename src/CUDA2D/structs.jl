@@ -52,8 +52,8 @@ end
 mutable struct CuParVector2D{T <:Real} <: FlowArr{T}
     # Parameter Vector
     arr::CuArray{T}
-    size_X::Int64
-    size_Y::Int64
+    size_X::Int32
+    size_Y::Int32
     function CuParVector2D{T}(arr::FlowArr{T}) where {T}
         new(CuArray{T}(arr.arr),arr.size_X,arr.size_Y)
     end
@@ -150,15 +150,18 @@ end
     end
 end
 
-@kernel function function_UtoP(@Const(U::AbstractArray{T}), P::AbstractArray{T},gamma::T,n_iter::Int64,tol::T=1e-10) where T
+@kernel inbounds = true function function_UtoP(@Const(U::AbstractArray{T}), P::AbstractArray{T},gamma::T,n_iter::Int64,tol::T=1e-10) where T
     i, j = @index(Global, NTuple)
     il, jl = @index(Local, NTuple)
+    i = Int32(i)
+    j = Int32(j)
+    il = Int32(il)
+    jl = Int32(jl)
     N = @uniform @groupsize()[1]
     M = @uniform @groupsize()[2]
     
     Ploc = @localmem eltype(U) (4,N,M)
     Uloc = @localmem eltype(U) (4,N,M)
-    #buff_fun = @localmem eltype(U) (4,N,M)
 
     
     for idx in 1:4
@@ -167,8 +170,13 @@ end
     end
     @synchronize
 
-    buff_out = @MVector zeros(T,4)
-    buff_fun = @MVector zeros(T,4)
+    #buff_out = @MVector zeros(T,4)
+    buff_out_t = @localmem eltype(U) (4,N,M)
+    buff_out = @view buff_out_t[:,il,jl]
+    
+    #buff_fun = @MVector zeros(T,4)
+    buff_fun_t = @localmem eltype(U) (4,N,M)
+    buff_fun = @view buff_fun_t[:,il,jl]
     buff_jac = @MVector zeros(T,16)
     Nx,Ny = @ndrange()
 

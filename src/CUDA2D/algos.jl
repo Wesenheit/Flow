@@ -1,210 +1,151 @@
-@kernel function function_Limit(P::AbstractArray{T},floor::T) where T
+const x = UInt8(1)
+const y = UInt8(2)
+
+
+@kernel inbounds = true function function_Limit(P::AbstractArray{T},floor::T) where T
     i, j = @index(Global, NTuple)
     P[1,i,j] = max(P[1,i,j],floor)
     P[2,i,j] = max(P[2,i,j],floor)
 end
 
-@kernel function function_FluxesX(@Const(P::AbstractArray{T}),gamma::T,floor::T,Fxglob::AbstractArray{T}) where T
-    #i, j = @index(Global, NTuple)
+@kernel inbounds = true function function_Fluxes(@Const(P::AbstractArray{T}),gamma::T,floor::T,Fglob::AbstractArray{T},dim::UInt8) where T
+    i, j = @index(Global, NTuple)
     il, jl = @index(Local, NTuple)
-    igr, jgr = @index(Group, NTuple)
+    i = Int32(i)
+    j = Int32(j)
+    il = Int32(il)
+    jl = Int32(jl)
     
     Nx,Ny = @uniform @ndrange()
 
     N = @uniform @groupsize()[1]
     M = @uniform @groupsize()[2]
-    i = (igr - 1)*N + il
-    j = (jgr - 1)*M + jl
+    #size of the local threads
+
+    ###paramters on the grid 
+    # sometimes it is more beneficient to put some values in the shared memory, sometimes it is more beneficien to put them in registers
     
-    PL = @localmem eltype(P) (4,N, M)
-    PR = @localmem eltype(P) (4,N, M)
+    #PL_arr = @localmem eltype(P) (4,N, M)
+    #PR_arr = @localmem eltype(P) (4,N, M)
+
+    #PL = @view PL_arr[:,il,jl]
+    #PR = @view PR_arr[:,il,jl]
+    PL = @MVector zeros(T,4)
+    PR = @MVector zeros(T,4)
     
-    FL = @localmem eltype(P) (4,N, M)
-    FR = @localmem eltype(P) (4,N, M)
+    FL_arr = @localmem eltype(P) (4,N, M)
+    FR_arr = @localmem eltype(P) (4,N, M)
+    FR = @view FR_arr[:,il,jl]
+    FL = @view FL_arr[:,il,jl]
+    #FR = @MVector zeros(T,4)
+    #FL = @MVector zeros(T,4)
     
-    UL = @localmem eltype(P) (4,N, M)
-    UR = @localmem eltype(P) (4,N, M)
-    
+    #UL = @MVector zeros(T,4)
+    #UR = @MVector zeros(T,4)
+
+    UL_arr = @localmem eltype(P) (4,N, M)
+    UR_arr = @localmem eltype(P) (4,N, M)
+    UR = @view UR_arr[:,il,jl]
+    UL = @view UL_arr[:,il,jl]
+
+    Plocal = @localmem eltype(P) (4,N, M)
+
+    for idx in 1:4 
+        Plocal[idx,il,jl] = P[idx,i,j]
+    end
+    @synchronize
+
     if i > 1 && i < Nx && j > 1 && j < Ny
         for idx in 1:4
-            sp = P[idx,i+1,j] - P[idx,i,j]
-            sm = P[idx,i,j] - P[idx,i-1,j]
+            if dim == x
+                sp = P[idx,i + Int32(1),j] - Plocal[idx,il,jl]
+                sm = Plocal[idx,il,jl] - P[idx,i - Int32(1),j]
+            elseif dim == y
+                sp = P[idx,i,j + Int32(1)] - Plocal[idx,il,jl]
+                sm = Plocal[idx,il,jl] - P[idx,i,j - Int32(1)]
+            end
             ssp = sign(sp)
             ssm = sign(sm)
             asp = abs(sp)
             asm = abs(sm)
             dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            PL[idx,il,jl] = P[idx,i,j] + dU
-            #PR[idx,mod1(il-1,N),jl] = P[idx,i,j] - dU
+            PL[idx] = Plocal[idx,il,jl] + dU
         end
     end
 
     if i < Nx-1 && j < Ny-1
         for idx in 1:4
-            sp = P[idx,i+2,j] - P[idx,i+1,j]
-            sm = P[idx,i+1,j] - P[idx,i,j]
+            if dim == x
+                sp = P[idx,i + Int32(2),j] - P[idx,i + Int32(1),j]
+                sm = P[idx,i + Int32(1),j] - Plocal[idx,il,jl]
+            elseif dim == y
+                sp = P[idx,i,j + Int32(2)] - P[idx,i,j + Int32(1)]
+                sm = P[idx,i,j + Int32(1)] - Plocal[idx,il,jl]
+            end
             ssp = sign(sp)
             ssm = sign(sm)
             asp = abs(sp)
             asm = abs(sm)
             dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            PR[idx,il,jl] = P[idx,i+1,j] - dU
+            if dim == x
+                PR[idx] = P[idx,i + Int32(1),j] - dU
+            elseif dim == y
+                PR[idx] = P[idx,i,j + Int32(1)] - dU
+            end
         end
     end
-    @synchronize
-    
-    bufferp = @view PR[:,il,jl]
-    buffer = @view UR[:,il,jl]
-    function_PtoU(bufferp,buffer,gamma)
-
-    bufferp = @view PL[:,il,jl]
-    buffer = @view UL[:,il,jl]
-    function_PtoU(bufferp,buffer,gamma)
-                    
-    bufferp = @view PR[:,il,jl]
-    buffer = @view FR[:,il,jl]
-    function_PtoFx(bufferp,buffer,gamma)
-
-    bufferp = @view PL[:,il,jl]
-    buffer = @view FL[:,il,jl]
-    function_PtoFx(bufferp,buffer,gamma)
     
     for idx in 1:2
-        PL[idx,il,jl] = max(floor,PL[idx,il,jl])
-        PR[idx,il,jl] = max(floor,PR[idx,il,jl])
+        PL[idx] = max(floor,PL[idx])
+        PR[idx] = max(floor,PR[idx])
     end
+    
+    function_PtoU(PR,UR,gamma)
+    function_PtoU(PL,UL,gamma)
+    if dim == x
+        function_PtoFx(PR,FR,gamma)
+        function_PtoFx(PL,FL,gamma)
+    elseif dim == y
+        function_PtoFy(PR,FR,gamma)
+        function_PtoFy(PL,FL,gamma)
+    end
+
     if i > 1 && j > 1 && i < Nx && j < Ny
-        
-        vL = PL[3,il,jl] / sqrt(PL[3,il,jl]^2 + PL[4,il,jl]^2 + 1)
-        vR = PR[3,il,jl] / sqrt(PR[3,il,jl]^2 + PR[4,il,jl]^2 + 1)
-        
-        CL = SoundSpeed(PL[1,il,jl],PL[2,il,jl],gamma)
-        CR = SoundSpeed(PR[1,il,jl],PR[2,il,jl],gamma)
+    
+        lor = sqrt(PL[3]^2 + PL[4]^2 + 1)
+        if dim == x
+            vL = PL[3] / lor
+            vR = PR[3] / lor
+        elseif dim == y
+            vL = PL[4] / lor
+            vR = PR[4] / lor
+        end
+        CL = SoundSpeed(PL[1],PL[2],gamma)
+        CR = SoundSpeed(PR[1],PR[2],gamma)
 
         
-        sigma_S_L = CL^2 / ( (PL[3,il,jl]^2 + PL[4,il,jl]^2 + 1) * (1-CL^2))
-        sigma_S_R = CR^2 / ( (PR[3,il,jl]^2 + PR[4,il,jl]^2 + 1) * (1-CR^2))
+        sigma_S_L = CL^2 / ( lor^2 * (1-CL^2))
+        sigma_S_R = CR^2 / ( lor^2 * (1-CR^2))
 
         C_max_X = max( (vL + sqrt(sigma_S_L * (1-vL^2 + sigma_S_L)) ) / (1 + sigma_S_L), (vR + sqrt(sigma_S_R * (1-vR^2 + sigma_S_R)) ) / (1 + sigma_S_R)) # velocity composition
         C_min_X = -min( (vL - sqrt(sigma_S_L * (1-vL^2 + sigma_S_L)) ) / (1 + sigma_S_L), (vR - sqrt(sigma_S_R * (1-vR^2 + sigma_S_R)) ) / (1 + sigma_S_R)) # velocity composition
         if C_max_X < 0 
             for idx in 1:4
-                Fxglob[idx,i,j] =  FR[idx,il,jl]
+                Fglob[idx,i,j] =  FR[idx]
             end
         elseif C_min_X < 0 
             for idx in 1:4
-                Fxglob[idx,i,j] =  FL[idx,il,jl] 
+                Fglob[idx,i,j] =  FL[idx] 
             end
         else
             for idx in 1:4
-                Fxglob[idx,i,j] = ( FR[idx,il,jl] * C_min_X + FL[idx,il,jl] * C_max_X - C_max_X * C_min_X * (UR[idx,il,jl] - UL[idx,il,jl])) / (C_max_X + C_min_X)
+                Fglob[idx,i,j] = ( FR[idx] * C_min_X + FL[idx] * C_max_X - C_max_X * C_min_X * (UR[idx] - UL[idx])) / (C_max_X + C_min_X)
             end
         end
     end
 end
 
-@kernel function function_FluxesY(@Const(P::AbstractArray{T}),gamma::T,floor::T,Fyglob::AbstractArray{T}) where T
-    #i, j = @index(Global, NTuple)
-    il, jl = @index(Local, NTuple)
-    igr, jgr = @index(Group, NTuple)
-    
-    Nx,Ny = @uniform @ndrange()
-
-    N = @uniform @groupsize()[1]
-    M = @uniform @groupsize()[2]
-    i = (igr - 1)*N + il
-    j = (jgr - 1)*M + jl
-    
-    PD = @localmem eltype(P) (4,N, M)
-    PU = @localmem eltype(P) (4,N, M)
-    
-    FD = @localmem eltype(P) (4,N, M)
-    FU = @localmem eltype(P) (4,N, M)
-    
-    UD = @localmem eltype(P) (4,N, M)
-    UU = @localmem eltype(P) (4,N, M)
-    
-    
-    if i > 1 && i < Nx && j > 1 && j < Ny
-        for idx in 1:4
-            sp = P[idx,i,j+1] - P[idx,i,j]
-            sm = P[idx,i,j] - P[idx,i,j-1]
-            ssp = sign(sp)
-            ssm = sign(sm)
-            asp = abs(sp)
-            asm = abs(sm)
-            dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            PD[idx,il,jl] = P[idx,i,j] + dU
-            #PU[idx,il,mod1(jl-1,M)] = P[idx,i,j] - dU
-        end
-    end
-
-    if i < Nx-1 && j < Ny-1
-        for idx in 1:4
-            sp = P[idx,i,j+2] - P[idx,i,j+1]
-            sm = P[idx,i,j+1] - P[idx,i,j]
-            ssp = sign(sp)
-            ssm = sign(sm)
-            asp = abs(sp)
-            asm = abs(sm)
-            dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            PU[idx,il,jl] = P[idx,i,j+1] - dU
-        end
-    end
-    @synchronize
-                    
-    bufferp = @view PD[:,il,jl]
-    buffer = @view UD[:,il,jl]
-    function_PtoU(bufferp,buffer,gamma)
-                    
-    bufferp = @view PU[:,il,jl]
-    buffer = @view UU[:,il,jl]
-    function_PtoU(bufferp,buffer,gamma)
-
-    bufferp = @view PU[:,il,jl]
-    buffer = @view FU[:,il,jl]
-    function_PtoFy(bufferp,buffer,gamma)
-
-    bufferp = @view PD[:,il,jl]
-    buffer = @view FD[:,il,jl]
-    function_PtoFy(bufferp,buffer,gamma)
-    
-    for idx in 1:2
-        PD[idx,il,jl] = max(floor,PD[idx,il,jl])
-        PU[idx,il,jl] = max(floor,PU[idx,il,jl])
-    end
-    if i > 1 && j > 1 && i < Nx && j < Ny
-        
-        vD = PD[4,il,jl] / sqrt(PD[3,il,jl]^2 + PD[4,il,jl]^2 + 1)
-        vU = PU[4,il,jl] / sqrt(PU[3,il,jl]^2 + PU[4,il,jl]^2 + 1)
-        
-        CD = SoundSpeed(PD[1,il,jl],PD[2,il,jl],gamma)
-        CU = SoundSpeed(PU[1,il,jl],PU[2,il,jl],gamma)
-
-        
-        sigma_S_D = CD^2 / ( (PD[3,il,jl]^2 + PD[4,il,jl]^2 + 1) * (1-CD^2))
-        sigma_S_U = CU^2 / ( (PU[3,il,jl]^2 + PU[4,il,jl]^2 + 1) * (1-CU^2))
-
-        C_max_Y = max( (vU + sqrt(sigma_S_U * (1-vU^2 + sigma_S_U)) ) / (1 + sigma_S_U), (vD + sqrt(sigma_S_D * (1-vD^2 + sigma_S_D)) ) / (1 + sigma_S_D)) # velocity composition
-        C_min_Y = -min( (vU - sqrt(sigma_S_U * (1-vU^2 + sigma_S_U) )) / (1 + sigma_S_U), (vD - sqrt(sigma_S_D * (1-vD^2 + sigma_S_D)) ) / (1 + sigma_S_D)) # velocity composition
-        if C_max_Y <= 0 
-            for idx in 1:4
-                Fyglob[idx,i,j] =  FU[idx,il,jl]
-            end
-        elseif C_min_Y <= 0 
-            for idx in 1:4
-                Fyglob[idx,i,j] =  FD[idx,il,jl]
-            end 
-        else
-            for idx in 1:4
-                Fyglob[idx,i,j] = ( FU[idx,il,jl] * C_min_Y + FD[idx,il,jl] * C_max_Y - C_max_Y * C_min_Y * (UU[idx,il,jl] - UD[idx,il,jl])) / (C_max_Y + C_min_Y)
-            end
-        end
-    end
-end
-
-
-@kernel function function_Update(U::AbstractArray{T},Ubuff::AbstractArray{T},dt::T,dx::T,dy::T,Fx::AbstractArray{T},Fy::AbstractArray{T}) where T
+@kernel inbounds = true function function_Update(U::AbstractArray{T},Ubuff::AbstractArray{T},dt::T,dx::T,dy::T,Fx::AbstractArray{T},Fy::AbstractArray{T}) where T
     i, j = @index(Global, NTuple)    
     Nx,Ny = @uniform @ndrange()
     
@@ -250,8 +191,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     wgX = div(P.size_X,SizeX)
     wgY = div(P.size_X,SizeY)
 
-    FluxesX = function_FluxesX(backend, (SizeX,SizeY))
-    FluxesY = function_FluxesY(backend, (SizeX,SizeY))
+    Fluxes = function_Fluxes(backend, (SizeX,SizeY))
     Update = function_Update(backend)
     UtoP = function_UtoP(backend, (SizeX,SizeY))
     PtoU = kernel_PtoU(backend)
@@ -265,9 +205,9 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     end
     while t < Tmax
 
-        @inbounds begin
-            FluxesX(P.arr,eos.gamma,floor,Fx.arr,ndrange = (P.size_X,P.size_Y))
-            FluxesY(P.arr,eos.gamma,floor,Fy.arr,ndrange = (P.size_X,P.size_Y))
+        begin
+            Fluxes(P.arr,eos.gamma,floor,Fx.arr,x,ndrange = (P.size_X,P.size_Y))
+            Fluxes(P.arr,eos.gamma,floor,Fy.arr,y,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
             Update(U.arr,Uhalf.arr,dt/2,dx,dy,Fx.arr,Fy.arr,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
@@ -275,7 +215,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
 
         Phalf.arr = copy(P.arr)
 
-        @inbounds begin
+        begin
             UtoP(Uhalf.arr,Phalf.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
             KernelAbstractions.synchronize(backend)
             Limit(Phalf.arr,floor,ndrange = (P.size_X,P.size_Y))
@@ -291,9 +231,9 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         #Start of the second cycle
         #
         #Calculate Flux
-        @inbounds begin
-            FluxesX(Phalf.arr,eos.gamma,floor,Fx.arr,ndrange = (P.size_X,P.size_Y))
-            FluxesY(Phalf.arr,eos.gamma,floor,Fy.arr,ndrange = (P.size_X,P.size_Y))
+        begin
+            Fluxes(Phalf.arr,eos.gamma,floor,Fx.arr,x,ndrange = (P.size_X,P.size_Y))
+            Fluxes(Phalf.arr,eos.gamma,floor,Fy.arr,y,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
             Update(U.arr,U.arr,dt,dx,dy,Fx.arr,Fy.arr,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
@@ -301,7 +241,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         
         #sync flux on the boundaries
         
-        @inbounds begin
+        begin
             UtoP(U.arr,P.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
             KernelAbstractions.synchronize(backend)
         
@@ -322,7 +262,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
             #start the boundary transport
             size = MPI.Comm_size(comm)
             
-            flat = vec(permutedims(Array{T}(P.arr[:,3:end-2,3:end-2]),[1,2,3]))
+            flat = vec(permutedims(Array{T}( @view P.arr[:,3:end-2,3:end-2]),[1,2,3]))
             if MPI.Comm_rank(comm) == 0
                 println(t," elapsed: ",time() - t0, " s")
                 t0 = time()

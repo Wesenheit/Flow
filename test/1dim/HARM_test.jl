@@ -20,7 +20,7 @@ dx::Float64 = X[2]-X[1]
 dt::Float64 = 0.4*dx
 println("Courant/c: ",dt/dx)
 T::Float64 = 0.5
-n_it::Int64 = 10.
+n_it::Int64 = 40.
 tol::Float64 = 1e-6
 drops::Float64 = T/3.
 

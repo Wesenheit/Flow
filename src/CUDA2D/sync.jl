@@ -1,17 +1,24 @@
-function SendBoundaryX(U::FlowArr,comm,buff_X_1::AbstractArray,buff_X_2::AbstractArray)
-    buff_X_1 .= @view U.arr[:,end-3:end-2,:]    
-    buff_X_2 .= @view U.arr[:,3:4,:]
+using CUDA
 
+function SendBoundaryX(U::CuParVector2D{T},comm,buff_X_1::CuArray{T},buff_X_2::CuArray{T}) where T
+    buff_X_1 = U.arr[:,end-3:end-2,:]    
+    buff_X_2 = U.arr[:,3:4,:]
+    CUDA.@sync begin
+        CUDA.copyto!(buff_X_1, CUDA.@view(U.arr[:, U.size_X-3:U.size_X-2, :]))
+        CUDA.copyto!(buff_X_2, CUDA.@view(U.arr[:, 3:4, :]))
+    end
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
     
-    MPI.Isend(buff_X_1,rank_source_right,0,comm)                        #buff_X_2,rank_dest_right,0,comm)
-    MPI.Isend(buff_X_2,rank_source_left,1,comm)                         #buff_X_2,rank_dest_left,1,comm)
+    MPI.Isend(buff_X_1,rank_source_right,0,comm)
+    MPI.Isend(buff_X_2,rank_source_left,1,comm)
 end
 
-function SendBoundaryY(U::FlowArr,comm,buff_Y_1::AbstractArray,buff_Y_2::AbstractArray)
-    buff_Y_1 .= @view U.arr[:,:,end-3:end-2]
-    buff_Y_2 .= @view U.arr[:,:,3:4]
+function SendBoundaryY(U::CuParVector2D{T},comm,buff_Y_1::CuArray{T},buff_Y_2::CuArray{T}) where T
+    CUDA.@sync begin
+        CUDA.copyto!(buff_Y_1, CUDA.@view(U.arr[:, :,U.size_Y-3:U.size_Y-2]))
+        CUDA.copyto!(buff_Y_2, CUDA.@view(U.arr[:, :, 3:4]))
+    end
 
     rank_source_up,rank_dest_up = MPI.Cart_shift(comm,1,1)
     rank_source_down,rank_dest_down = MPI.Cart_shift(comm,1,-1)
@@ -20,20 +27,22 @@ function SendBoundaryY(U::FlowArr,comm,buff_Y_1::AbstractArray,buff_Y_2::Abstrac
     MPI.Isend(buff_Y_2,rank_source_down,1,comm)              #,buff_Y_2,rank_dest_down,1,comm)
 end
 
-function WaitForBoundary(U::FlowArr,comm,
-                        buff_X_1::AbstractArray,buff_X_2::AbstractArray,
-                        buff_Y_1::AbstractArray,buff_Y_2::AbstractArray)
+function WaitForBoundary(U::CuParVector2D{T},comm,
+                        buff_X_1::CuArray{T},buff_X_2::AbstractArray{T},
+                        buff_Y_1::CuArray{T},buff_Y_2::AbstractArray{T}) where T
 
 
     rank_source_right,rank_dest_right = MPI.Cart_shift(comm,0,1)
     rank_source_left,rank_dest_left = MPI.Cart_shift(comm,0,-1)
     rank_source_up,rank_dest_up = MPI.Cart_shift(comm,1,1)
     rank_source_down,rank_dest_down = MPI.Cart_shift(comm,1,-1)
-    
-    buff_X_1 .= @view U.arr[:,1:2,:] 
-    buff_X_2 .= @view U.arr[:,end-1:end,:]
-    buff_Y_1 .= @view U.arr[:,:,1:2] 
-    buff_Y_2 .= @view U.arr[:,:,end-1:end]
+
+    CUDA.@sync begin
+        CUDA.copyto!(buff_Y_1, CUDA.@view(U.arr[:, :,1:2]))
+        CUDA.copyto!(buff_Y_2, CUDA.@view(U.arr[:, :,end-1:end]))
+        CUDA.copyto!(buff_X_1, CUDA.@view(U.arr[:, 1:2,:]))
+        CUDA.copyto!(buff_X_2, CUDA.@view(U.arr[:, end-1:end,:]))
+    end
 
     r1 = MPI.Isend(buff_X_1,rank_dest_right,0,comm)
     r2 = MPI.Isend(buff_X_2,rank_dest_left,1,comm)                       
@@ -41,8 +50,10 @@ function WaitForBoundary(U::FlowArr,comm,
     r4 = MPI.Isend(buff_Y_2,rank_dest_down,1,comm)
     MPI.Waitall([r1,r2,r3,r4])
 
-    U.arr[:,1:2,:] .= buff_X_1
-    U.arr[:,end-1:end,:] .= buff_X_2
-    U.arr[:,:,1:2] .= buff_Y_1
-    U.arr[:,:,end-1:end] = buff_Y_2 
+    CUDA.@sync begin
+        CUDA.copyto!(CUDA.@view(U.arr[:, :,1:2]),buff_Y_1)
+        CUDA.copyto!(CUDA.@view(U.arr[:, :,end-1:end]),buff_Y_2)
+        CUDA.copyto!(CUDA.@view(U.arr[:, 1:2,:]),buff_X_1)
+        CUDA.copyto!(CUDA.@view(U.arr[:, end-1:end,:]),buff_X_2)
+    end
 end

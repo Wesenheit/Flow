@@ -3,9 +3,10 @@ using CairoMakie
 using ThreadPinning
 using Profile
 using Printf
+using CUDA
 using MPI
 
-Type = Float64
+Type = Float32
 
 @assert MPI.has_cuda()
 MPI.Init()
@@ -15,8 +16,8 @@ MPI_Y = 1
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(false,false),reorder = true)
 include("../../../src/CUDA2D/Flow2D.jl")
 eos = Flow2D.Polytrope{Type}(5.0/3.0)
-Nx = 8192 - 4
-Ny = 8192 - 4
+Nx = 2048 - 4
+Ny = 2048 - 4
 P = Flow2D.ParVector2D{Type}(Nx,Ny)
 tot_X = MPI_X * Nx + 4
 tot_Y = MPI_Y * Ny + 4
@@ -80,9 +81,9 @@ if MPI.Comm_rank(comm) == 0
 end
 drops::Type = T/100.
 SizeX = 16
-SizeY = 8
+SizeY = 16
 CuP = Flow2D.CuParVector2D{Type}(P)
-@time Flow2D.HARM_HLL(comm,CuP,MPI_X,MPI_Y,SizeX,SizeY,dt,dx,dy,T,eos,drops,floor,ARGS[1],n_it,tol)
+CUDA.@time Flow2D.HARM_HLL(comm,CuP,MPI_X,MPI_Y,SizeX,SizeY,dt,dx,dy,T,eos,drops,floor,ARGS[1],n_it,tol)
 
 
 MPI.Finalize()
