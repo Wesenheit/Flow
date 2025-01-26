@@ -18,20 +18,12 @@ function LaxFriedrich(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64
     push!(out,deepcopy(P))
     while t < T
         PtoF(P,F,eos) #calculating fluxes
-
-        #Ubuffer.arr1[1] =  0.5 * (U1.arr1[N] + U1.arr1[2]) - 0.5 * dt/dx * (F.arr1[2] - F.arr1[N]) 
-        #Ubuffer.arr2[1] =  0.5 * (U1.arr2[N] + U1.arr2[2]) - 0.5 * dt/dx * (F.arr2[2] - F.arr2[N]) 
-        #Ubuffer.arr3[1] =  0.5 * (U1.arr3[N] + U1.arr3[2]) - 0.5 * dt/dx * (F.arr3[2] - F.arr3[N]) 
         
         for i in 2:N-1  #Lax Friedrich code
             @inbounds Ubuffer.arr1[i] =  0.5 * (U1.arr1[i - 1] + U1.arr1[i + 1]) - 0.5 * dt/dx * (F.arr1[i + 1] - F.arr1[i - 1]) 
             @inbounds Ubuffer.arr2[i] =  0.5 * (U1.arr2[i - 1] + U1.arr2[i + 1]) - 0.5 * dt/dx * (F.arr2[i + 1] - F.arr2[i - 1]) 
             @inbounds Ubuffer.arr3[i] =  0.5 * (U1.arr3[i - 1] + U1.arr3[i + 1]) - 0.5 * dt/dx * (F.arr3[i + 1] - F.arr3[i - 1]) 
         end
-        
-        #Ubuffer.arr1[N] =  0.5 * (U1.arr1[N - 1] + U1.arr1[1]) - 0.5 * dt/dx * (F.arr1[1] - F.arr1[N - 1]) 
-        #Ubuffer.arr2[N] =  0.5 * (U1.arr2[N - 1] + U1.arr2[1]) - 0.5 * dt/dx * (F.arr2[1] - F.arr2[N - 1]) 
-        #Ubuffer.arr3[N] =  0.5 * (U1.arr3[N - 1] + U1.arr3[1]) - 0.5 * dt/dx * (F.arr3[1] - F.arr3[N - 1])
         UtoP(Ubuffer,P,eos,kwargs...) #Conversion to primitive variables
         for i in 1:N
             @inbounds U1.arr1[i] = Ubuffer.arr1[i]
@@ -51,7 +43,7 @@ function LaxFriedrich(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64
 end
 
 
-function HARM_HLL(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64,eos::EOS,drops::Float64,FluxLimiter::Function,kwargs...)
+function HARM_HLL(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64,eos::EOS,drops::Float64,rec::Symbol,kwargs...)
     U::ParVector1D = ParVector1D{Float64,N}()
     Ubuffer::ParVector1D = ParVector1D{Float64,N}()
 
@@ -60,6 +52,8 @@ function HARM_HLL(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64,eos
 
     PR::ParVector1D = ParVector1D{Float64,N+1}() #Left primitive variable 
     PL::ParVector1D = ParVector1D{Float64,N+1}() #Right primitive variable
+    PR = deepcopy(P)
+    PL = deepcopy(P)
     UL::ParVector1D = ParVector1D{Float64,N+1}()
     UR::ParVector1D = ParVector1D{Float64,N+1}()
     FL::ParVector1D = ParVector1D{Float64,N+1}() #Left flux
@@ -82,47 +76,25 @@ function HARM_HLL(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64,eos
     push!(out,deepcopy(P))
     while t < T
         
-        @threads :static for i in 2:N-1 # interpolating left and right
-            sp = P.arr1[i+1] -P.arr1[i]
-            sm = P.arr1[i] - P.arr1[i-1]
-            ssp = sign.(sp)
-            ssm = sign.(sm)
-            asp = abs(sp)
-            asm = abs(sm)
-            dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            PL.arr1[i] = P.arr1[i] + dU
-            PR.arr1[i-1] = P.arr1[i] - dU
-            
-            sp = P.arr2[i+1] -P.arr2[i]
-            sm = P.arr2[i] - P.arr2[i-1]
-            ssp = sign.(sp)
-            ssm = sign.(sm)
-            asp = abs(sp)
-            asm = abs(sm)
-            dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            PL.arr2[i] = P.arr2[i] + dU
-            PR.arr2[i-1] = P.arr2[i] - dU
-
-            sp = P.arr3[i+1] -P.arr3[i]
-            sm = P.arr3[i] - P.arr3[i-1]
-            ssp = sign.(sp)
-            ssm = sign.(sm)
-            asp = abs(sp)
-            asm = abs(sm)
-            dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            PL.arr3[i] = P.arr3[i] + dU
-            PR.arr3[i-1] = P.arr3[i] - dU
+        if rec == :minmod
+            @threads :static for i in 2:N-1 # interpolating left and right
+                PR.arr1[i-1],PL.arr1[i] = MINMOD(P.arr1[i-1],P.arr1[i],P.arr1[i+1])
+                PR.arr2[i-1],PL.arr2[i] = MINMOD(P.arr2[i-1],P.arr2[i],P.arr2[i+1])
+                PR.arr3[i-1],PL.arr3[i] = MINMOD(P.arr3[i-1],P.arr3[i],P.arr3[i+1])
+            end
+        elseif rec == :ppm
+            @threads :static for i in 3:N-2 # interpolating left and right
+                PR.arr1[i-1],PL.arr1[i] = PPM(P.arr1[i-2],P.arr1[i-1],P.arr1[i],P.arr1[i+1],P.arr1[i+2])
+                PR.arr2[i-1],PL.arr2[i] = PPM(P.arr2[i-2],P.arr2[i-1],P.arr2[i],P.arr2[i+1],P.arr2[i+2])
+                PR.arr3[i-1],PL.arr3[i] = PPM(P.arr3[i-2],P.arr3[i-1],P.arr3[i],P.arr3[i+1],P.arr3[i+2])
+            end
+        else
+            println("reconstruction not supported!")
         end
-        r1 = FluxLimiter( 0.)
-        r2 = FluxLimiter( 0.)
-        r3 = FluxLimiter( 0.)
-        PL.arr1[1] = P.arr1[1] + 0.5 * (P.arr1[2] - P.arr1[1]) * r1
-        PL.arr2[1] = P.arr2[1] + 0.5 * (P.arr2[2] - P.arr2[1]) * r2
-        PL.arr3[1] = P.arr3[1] + 0.5 * (P.arr3[2] - P.arr3[1]) * r3
-
-        PR.arr1[end] = P.arr1[end] #- 0.5 * (P.arr1[end] - P.arr1[end - 1]) * r1
-        PR.arr2[end] = P.arr2[end] #- 0.5 * (P.arr2[end] - P.arr2[end - 1]) * r2
-        PR.arr3[end] = P.arr3[end] #- 0.5 * (P.arr3[end] - P.arr3[end - 1]) * r3
+        if minimum(PL.arr1) < 0
+            println(argmin(PL.arr1))
+            #return
+        end
         PtoU(PR,UR,eos)
         PtoU(PL,UL,eos)
         PtoF(PR,FR,eos)
@@ -131,8 +103,8 @@ function HARM_HLL(P::ParVector1D,N::Int64,dt::Float64,dx::Float64,T::Float64,eos
         for i in 1:N
             vL::Float64 = PL.arr3[i] / sqrt(PL.arr3[i]^2 + 1)
             vR::Float64 = PR.arr3[i] / sqrt(PR.arr3[i]^2 + 1)
-            CL::Float64 = SoundSpeed(max(PL.arr1[i],1e-4),max(PL.arr2[i],1e-4),eos)
-            CR::Float64 = SoundSpeed(max(PR.arr1[i],1e-4),max(PR.arr2[i],1e-4),eos)
+            CL::Float64 = SoundSpeed(PL.arr1[i],PL.arr2[i],eos)
+            CR::Float64 = SoundSpeed(PR.arr1[i],PR.arr2[i],eos)
                     
             sigma_S_L::Float64 = CL^2 / ( (PL.arr3[i]^2 + 1) * (1-CL^2))
             sigma_S_R::Float64 = CR^2 / ( (PR.arr3[i]^2 + 1) * (1-CR^2))

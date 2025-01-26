@@ -16,11 +16,11 @@ MPI_Y = 1
 comm = MPI.Cart_create(comm,(MPI_X,MPI_Y), periodic=(false,false),reorder = true)
 include("../../../src/CUDA2D/Flow2D.jl")
 eos = Flow2D.Polytrope{Type}(5.0/3.0)
-Nx = 2048 - 4
-Ny = 2048 - 4
+Nx = 2048 - 6
+Ny = 2048 - 6
 P = Flow2D.ParVector2D{Type}(Nx,Ny)
-tot_X = MPI_X * Nx + 4
-tot_Y = MPI_Y * Ny + 4
+tot_X = MPI_X * Nx + 6
+tot_Y = MPI_Y * Ny + 6
 
 idx,idy=  MPI.Cart_coords(comm)
 
@@ -80,8 +80,8 @@ if MPI.Comm_rank(comm) == 0
     println("dt: ",dt)
 end
 drops::Type = T/100.
-SizeX = 16
-SizeY = 16
+SizeX = 8
+SizeY = 8
 CuP = Flow2D.CuParVector2D{Type}(P)
 CUDA.@time Flow2D.HARM_HLL(comm,CuP,MPI_X,MPI_Y,SizeX,SizeY,dt,dx,dy,T,eos,drops,floor,ARGS[1],n_it,tol)
 

@@ -3,7 +3,7 @@ using CairoMakie
 using ThreadPinning
 include("../../src/1dim/Flow1D.jl")
 eos = Flow1D.Polytrope{Float64}(4.0/3.0)
-N = 500
+N = 1024
 P = Flow1D.ParVector1D{Float64,N}()
 for i in 1:div(N,2)
     P.arr1[i] = 1.
@@ -17,7 +17,7 @@ end
 X = LinRange(-0.5,0.5,N) |> collect
 
 dx::Float64 = X[2]-X[1]
-dt::Float64 = 0.4*dx
+dt::Float64 = 0.2*dx
 println("Courant/c: ",dt/dx)
 T::Float64 = 0.5
 n_it::Int64 = 40.
@@ -27,7 +27,8 @@ drops::Float64 = T/3.
 pinthreads(:cores)
 threadinfo(;)
 
-out = Flow1D.HARM_HLL(P,N,dt,dx,T,eos,drops,Flow1D.MC,n_it,tol)
+#out = Flow1D.HARM_HLL(P,N,dt,dx,T,eos,drops,:minmod,n_it,tol)
+out = Flow1D.HARM_HLL(P,N,dt,dx,T,eos,drops,:ppm,n_it,tol)
 
 
 X = LinRange(-0.5,0.5,N) |> collect

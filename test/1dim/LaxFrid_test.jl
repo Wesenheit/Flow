@@ -2,7 +2,7 @@ using BenchmarkTools
 using CairoMakie
 include("../../src/1dim/Flow1D.jl")
 eos = Flow1D.Polytrope(5.0/3.0)
-N = 500
+N = 512
 P = Flow1D.ParVector1D{Float64,N}()
 for i in 1:div(N,2)
     P.arr1[i] = 1.

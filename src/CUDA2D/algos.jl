@@ -25,13 +25,13 @@ end
     ###paramters on the grid 
     # sometimes it is more beneficient to put some values in the shared memory, sometimes it is more beneficien to put them in registers
     
-    #PL_arr = @localmem eltype(P) (4,N, M)
-    #PR_arr = @localmem eltype(P) (4,N, M)
+    PL_arr = @localmem eltype(P) (4,N, M)
+    PR_arr = @localmem eltype(P) (4,N, M)
 
-    #PL = @view PL_arr[:,il,jl]
-    #PR = @view PR_arr[:,il,jl]
-    PL = @MVector zeros(T,4)
-    PR = @MVector zeros(T,4)
+    PL = @view PL_arr[:,il,jl]
+    PR = @view PR_arr[:,il,jl]
+    #PL = @MVector zeros(T,4)
+    #PR = @MVector zeros(T,4)
     
     FL_arr = @localmem eltype(P) (4,N, M)
     FR_arr = @localmem eltype(P) (4,N, M)
@@ -48,50 +48,45 @@ end
     UR = @view UR_arr[:,il,jl]
     UL = @view UL_arr[:,il,jl]
 
-    Plocal = @localmem eltype(P) (4,N, M)
 
-    for idx in 1:4 
-        Plocal[idx,il,jl] = P[idx,i,j]
-    end
-    @synchronize
-
-    if i > 1 && i < Nx && j > 1 && j < Ny
+    if i > 2 && i < Nx - 1 && j > 2 && j < Ny - 1
         for idx in 1:4
             if dim == x
-                sp = P[idx,i + Int32(1),j] - Plocal[idx,il,jl]
-                sm = Plocal[idx,il,jl] - P[idx,i - Int32(1),j]
+                q_i = P[idx,i,j]
+                q_im1 = P[idx,i-1,j]
+                q_im2 = P[idx,i-2,j]
+                q_ip1 = P[idx,i+1,j]
+                q_ip2 = P[idx,i+2,j]
             elseif dim == y
-                sp = P[idx,i,j + Int32(1)] - Plocal[idx,il,jl]
-                sm = Plocal[idx,il,jl] - P[idx,i,j - Int32(1)]
+                q_i = P[idx,i,j]
+                q_im1 = P[idx,i,j-1]
+                q_im2 = P[idx,i,j-2]
+                q_ip1 = P[idx,i,j+1]
+                q_ip2 = P[idx,i,j+2]
             end
-            ssp = sign(sp)
-            ssm = sign(sm)
-            asp = abs(sp)
-            asm = abs(sm)
-            dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            PL[idx] = Plocal[idx,il,jl] + dU
+            Q_D,Q_L = PPM(q_im2,q_im1,q_i,q_ip1,q_ip2)
+            PL[idx] = Q_L 
         end
     end
 
-    if i < Nx-1 && j < Ny-1
+    if i > 1 && j > 1 && j < Nx-2 && j < Ny-2
         for idx in 1:4
             if dim == x
-                sp = P[idx,i + Int32(2),j] - P[idx,i + Int32(1),j]
-                sm = P[idx,i + Int32(1),j] - Plocal[idx,il,jl]
+                q_i = P[idx,i+1,j]
+                q_im1 = P[idx,i,j]
+                q_im2 = P[idx,i-1,j]
+                q_ip1 = P[idx,i+2,j]
+                q_ip2 = P[idx,i+3,j]
             elseif dim == y
-                sp = P[idx,i,j + Int32(2)] - P[idx,i,j + Int32(1)]
-                sm = P[idx,i,j + Int32(1)] - Plocal[idx,il,jl]
+                q_i = P[idx,i,j+1]
+                q_im1 = P[idx,i,j]
+                q_im2 = P[idx,i,j-1]
+                q_ip1 = P[idx,i,j+2]
+                q_ip2 = P[idx,i,j+3]
             end
-            ssp = sign(sp)
-            ssm = sign(sm)
-            asp = abs(sp)
-            asm = abs(sm)
-            dU = 0.25 * (ssp + ssm) * min(asp,asm)
-            if dim == x
-                PR[idx] = P[idx,i + Int32(1),j] - dU
-            elseif dim == y
-                PR[idx] = P[idx,i,j + Int32(1)] - dU
-            end
+
+            Q_D,Q_L = PPM(q_im2,q_im1,q_i,q_ip1,q_ip2)
+            PR[idx] = Q_D
         end
     end
     
@@ -112,20 +107,21 @@ end
 
     if i > 1 && j > 1 && i < Nx && j < Ny
     
-        lor = sqrt(PL[3]^2 + PL[4]^2 + 1)
+        lorL = sqrt(PL[3]^2 + PL[4]^2 + 1)
+        lorR = sqrt(PR[3]^2 + PR[4]^2 + 1)
         if dim == x
-            vL = PL[3] / lor
-            vR = PR[3] / lor
+            vL = PL[3] / lorL
+            vR = PR[3] / lorR
         elseif dim == y
-            vL = PL[4] / lor
-            vR = PR[4] / lor
+            vL = PL[4] / lorL
+            vR = PR[4] / lorR
         end
         CL = SoundSpeed(PL[1],PL[2],eos)
         CR = SoundSpeed(PR[1],PR[2],eos)
 
         
-        sigma_S_L = CL^2 / ( lor^2 * (1-CL^2))
-        sigma_S_R = CR^2 / ( lor^2 * (1-CR^2))
+        sigma_S_L = CL^2 / ( lorL^2 * (1-CL^2))
+        sigma_S_R = CR^2 / ( lorR^2 * (1-CR^2))
 
         C_max_X = max( (vL + sqrt(sigma_S_L * (1-vL^2 + sigma_S_L)) ) / (1 + sigma_S_L), (vR + sqrt(sigma_S_R * (1-vR^2 + sigma_S_R)) ) / (1 + sigma_S_R)) # velocity composition
         C_min_X = -min( (vL - sqrt(sigma_S_L * (1-vL^2 + sigma_S_L)) ) / (1 + sigma_S_L), (vR - sqrt(sigma_S_R * (1-vR^2 + sigma_S_R)) ) / (1 + sigma_S_R)) # velocity composition
@@ -149,7 +145,7 @@ end
     i, j = @index(Global, NTuple)    
     Nx,Ny = @uniform @ndrange()
     
-    if i >2 && j > 2 && i < Nx-1 && j < Ny-1
+    if i > 3 && j > 3 && i < Nx-2 && j < Ny-2
         for idx in 1:4
             Ubuff[idx,i,j] = U[idx,i,j] - dt/dx * (Fx[idx,i,j] - Fx[idx,i-1,j]) - dt/dy * (Fy[idx,i,j] - Fy[idx,i,j-1])
         end
@@ -170,15 +166,14 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     Fx = VectorLike(P)
     Fy = VectorLike(P)
 
-
-    buff_X_1 = allocate(backend,T,4,2,P.size_Y)
-    buff_X_2 = allocate(backend,T,4,2,P.size_Y)
-    buff_X_3 = allocate(backend,T,4,2,P.size_Y)
-    buff_X_4 = allocate(backend,T,4,2,P.size_Y)
-    buff_Y_1 = allocate(backend,T,4,P.size_X,2)
-    buff_Y_2 = allocate(backend,T,4,P.size_X,2)
-    buff_Y_3 = allocate(backend,T,4,P.size_X,2)
-    buff_Y_4 = allocate(backend,T,4,P.size_X,2)
+    buff_X_1 = allocate(backend,T,4,3,P.size_Y)
+    buff_X_2 = allocate(backend,T,4,3,P.size_Y)
+    buff_X_3 = allocate(backend,T,4,3,P.size_Y)
+    buff_X_4 = allocate(backend,T,4,3,P.size_Y)
+    buff_Y_1 = allocate(backend,T,4,P.size_X,3)
+    buff_Y_2 = allocate(backend,T,4,P.size_X,3)
+    buff_Y_3 = allocate(backend,T,4,P.size_X,3)
+    buff_Y_4 = allocate(backend,T,4,P.size_X,3)
     t::T = 0
 
     SendBoundaryX(P,comm,buff_X_1,buff_X_2)

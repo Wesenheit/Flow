@@ -24,10 +24,10 @@ using HDF5
 function local_to_global(i,px,Size_X,MPI_X)
     if px == 0
         return i
-    elseif px > 0 && px < MPI_X-1 && (px < 3 || px > Size_X-2) 
+    elseif px > 0 && px < MPI_X-1 && (px < 4 || px > Size_X-3) 
         return 0
     else
-        return i + px * (Size_X - 4)
+        return i + px * (Size_X - 6)
     end
 end
 
@@ -41,8 +41,8 @@ mutable struct ParVector2D{T <:Real} <: FlowArr{T}
     size_X::Int64
     size_Y::Int64
     function ParVector2D{T}(Nx,Ny) where {T}
-        arr = zeros(T,4,Nx+4,Ny+4)
-        new(arr,Nx+4,Ny+4)
+        arr = zeros(T,4,Nx + 6,Ny + 6)
+        new(arr,Nx + 6 ,Ny + 6)
     end
     function ParVector2D{T}(arr::FlowArr{T}) where {T}
         new(Array{T}(arr.arr),arr.size_X,arr.size_Y)
@@ -59,15 +59,15 @@ mutable struct CuParVector2D{T <:Real} <: FlowArr{T}
     end
 
     function CuParVector2D{T}(Nx::Int64,Ny::Int64) where {T}
-        new(CuArray{T}(zeros(T,4,Nx+4,Ny+4)),Nx+4,Ny+4)
+        new(CuArray{T}(zeros(T,4,Nx + 6,Ny + 6)), Nx + 6,Ny + 6)
     end
 end
 
 function VectorLike(X::FlowArr{T}) where T
     if typeof(X.arr) <: CuArray
-        return CuParVector2D{T}(X.size_X-4,X.size_Y-4)
+        return CuParVector2D{T}(X.size_X-6,X.size_Y-6)
     else
-        return ParVector2D{T}(X.size_X-4,X.size_Y-4)
+        return ParVector2D{T}(X.size_X-6,X.size_Y-6)
     end
 end
 
@@ -177,7 +177,7 @@ end
     buff_jac = @MVector zeros(T,16)
     Nx,Ny = @ndrange()
 
-    if i > 2 && i < Nx-2 && j>2 && j<Ny-1
+    if i > 3 && i < Nx - 3 && j > 3 && j < Ny-3
         for _ in 1:n_iter
             gam = sqrt(Ploc[3,il,jl]^2 + Ploc[4,il,jl]^2 + 1)
             w = eos.gamma * Ploc[2,il,jl] + Ploc[1,il,jl] 

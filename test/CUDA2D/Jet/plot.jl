@@ -1,6 +1,6 @@
 using CairoMakie 
 using HDF5
-num = 100
+num = 40
 
 
 fig1 = Figure(size = (1920,1080))
