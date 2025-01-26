@@ -8,7 +8,7 @@ const y = UInt8(2)
     P[2,i,j] = max(P[2,i,j],floor)
 end
 
-@kernel inbounds = true function function_Fluxes(@Const(P::AbstractArray{T}),gamma::T,floor::T,Fglob::AbstractArray{T},dim::UInt8) where T
+@kernel inbounds = true function function_Fluxes(@Const(P::AbstractArray{T}),eos::Polytrope{T},floor::T,Fglob::AbstractArray{T},dim::UInt8) where T
     i, j = @index(Global, NTuple)
     il, jl = @index(Local, NTuple)
     i = Int32(i)
@@ -100,14 +100,14 @@ end
         PR[idx] = max(floor,PR[idx])
     end
     
-    function_PtoU(PR,UR,gamma)
-    function_PtoU(PL,UL,gamma)
+    function_PtoU(PR,UR,eos)
+    function_PtoU(PL,UL,eos)
     if dim == x
-        function_PtoFx(PR,FR,gamma)
-        function_PtoFx(PL,FL,gamma)
+        function_PtoFx(PR,FR,eos)
+        function_PtoFx(PL,FL,eos)
     elseif dim == y
-        function_PtoFy(PR,FR,gamma)
-        function_PtoFy(PL,FL,gamma)
+        function_PtoFy(PR,FR,eos)
+        function_PtoFy(PL,FL,eos)
     end
 
     if i > 1 && j > 1 && i < Nx && j < Ny
@@ -120,8 +120,8 @@ end
             vL = PL[4] / lor
             vR = PR[4] / lor
         end
-        CL = SoundSpeed(PL[1],PL[2],gamma)
-        CR = SoundSpeed(PR[1],PR[2],gamma)
+        CL = SoundSpeed(PL[1],PL[2],eos)
+        CR = SoundSpeed(PR[1],PR[2],eos)
 
         
         sigma_S_L = CL^2 / ( lor^2 * (1-CL^2))
@@ -196,7 +196,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     UtoP = function_UtoP(backend, (SizeX,SizeY))
     PtoU = kernel_PtoU(backend)
     
-    PtoU(P.arr,U.arr,eos.gamma,ndrange = (P.size_X,P.size_Y))
+    PtoU(P.arr,U.arr,eos,ndrange = (P.size_X,P.size_Y))
     KernelAbstractions.synchronize(backend)
     thres_to_dump::T = drops
     i::Int64 = 0.
@@ -206,8 +206,8 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
     while t < Tmax
 
         begin
-            Fluxes(P.arr,eos.gamma,floor,Fx.arr,x,ndrange = (P.size_X,P.size_Y))
-            Fluxes(P.arr,eos.gamma,floor,Fy.arr,y,ndrange = (P.size_X,P.size_Y))
+            Fluxes(P.arr,eos,floor,Fx.arr,x,ndrange = (P.size_X,P.size_Y))
+            Fluxes(P.arr,eos,floor,Fy.arr,y,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
             Update(U.arr,Uhalf.arr,dt/2,dx,dy,Fx.arr,Fy.arr,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
@@ -216,7 +216,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         Phalf.arr = copy(P.arr)
 
         begin
-            UtoP(Uhalf.arr,Phalf.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
+            UtoP(Uhalf.arr,Phalf.arr,eos,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
             KernelAbstractions.synchronize(backend)
             Limit(Phalf.arr,floor,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
@@ -232,8 +232,8 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         #
         #Calculate Flux
         begin
-            Fluxes(Phalf.arr,eos.gamma,floor,Fx.arr,x,ndrange = (P.size_X,P.size_Y))
-            Fluxes(Phalf.arr,eos.gamma,floor,Fy.arr,y,ndrange = (P.size_X,P.size_Y))
+            Fluxes(Phalf.arr,eos,floor,Fx.arr,x,ndrange = (P.size_X,P.size_Y))
+            Fluxes(Phalf.arr,eos,floor,Fy.arr,y,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
             Update(U.arr,U.arr,dt,dx,dy,Fx.arr,Fy.arr,ndrange = (P.size_X,P.size_Y))
             KernelAbstractions.synchronize(backend)
@@ -242,7 +242,7 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         #sync flux on the boundaries
         
         begin
-            UtoP(U.arr,P.arr,eos.gamma,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
+            UtoP(U.arr,P.arr,eos,kwargs[1],kwargs[2],ndrange = (P.size_X,P.size_Y)) #Conversion to primitive variables at the half-step
             KernelAbstractions.synchronize(backend)
         
             Limit(P.arr,floor,ndrange = (P.size_X,P.size_Y))
@@ -256,42 +256,14 @@ function HARM_HLL(comm,P::FlowArr,XMPI::Int64,YMPI::Int64,
         t += dt
         if t > thres_to_dump
             i+=1
-            #increase the threshold to dump
             thres_to_dump += drops
-
-            #start the boundary transport
-            size = MPI.Comm_size(comm)
-            
-            flat = vec(permutedims(Array{T}( @view P.arr[:,3:end-2,3:end-2]),[1,2,3]))
             if MPI.Comm_rank(comm) == 0
                 println(t," elapsed: ",time() - t0, " s")
                 t0 = time()
-                recvbuf = zeros(T,length(flat) *size)  #
-            else
-                recvbuf = nothing  # Non-root processes don't allocate
             end
-            MPI.Gather!(flat, recvbuf, comm)
-
-
-            if MPI.Comm_rank(comm) == 0
-                global_matrix = zeros(4,XMPI * (P.size_X - 4),YMPI * (P.size_Y - 4))
-                for p in 0:(size-1)
-                    px,py = MPI.Cart_coords(comm,p)
-                    start_x = px * (P.size_X - 4) + 1
-                    start_y = py * (P.size_Y - 4) + 1
-                    local_start = p * length(flat) + 1
-                    local_end = local_start + length(flat) - 1
-                    
-                    global_matrix[:, start_x:start_x+(P.size_X - 4)-1, start_y:start_y+(P.size_Y - 4)-1] = 
-                        reshape(recvbuf[local_start:local_end], 4, P.size_X-4, P.size_Y-4)
-                end
-                file = h5open(out_dir * "/dump"*string(i)*".h5","w")
-                write(file,"data",global_matrix)
-                write(file,"T",t)
-                write(file,"grid",[dx,dy])
-
-                close(file)
-            end
+            to_save = Dict("T"=>t, "grid"=>[dx,dy])
+            name = out_dir * "/dump"*string(i)*".h5"
+            SaveHDF5Gather(comm,P,XMPI,YMPI,name,to_save)
         end
     end    
     return i

@@ -71,50 +71,47 @@ function VectorLike(X::FlowArr{T}) where T
     end
 end
 
-@kernel function kernel_PtoU(@Const(P::AbstractArray{T}), U::AbstractArray{T},gamma::T) where T
+@kernel function kernel_PtoU(@Const(P::AbstractArray{T}), U::AbstractArray{T},eos::Polytrope{T}) where T
     i, j = @index(Global, NTuple)    
     @inbounds begin
         gam = sqrt(P[3,i,j]^2 + P[4,i,j]^2 + 1)
-        w = gamma * P[2,i,j] + P[1,i,j] 
+        w = eos.gamma * P[2,i,j] + P[1,i,j] 
         U[1,i,j] = gam * P[1,i,j]
-        U[2,i,j] = (gamma-1) * P[2,i,j] - gam^2 * w
+        U[2,i,j] = (eos.gamma-1) * P[2,i,j] - gam^2 * w
         U[3,i,j] = P[3,i,j] * gam * w
         U[4,i,j] = P[4,i,j] * gam * w
     end
 end
 
 
-
-
-
-@inline function function_PtoU(P::AbstractVector{T}, U::AbstractVector{T},gamma::T) where T
+@inline function function_PtoU(P::AbstractVector{T}, U::AbstractVector{T},eos::Polytrope{T}) where T
     gam = sqrt(P[3]^2 + P[4]^2 + 1)
-    w = gamma * P[2] + P[1] 
+    w = eos.gamma * P[2] + P[1] 
     U[1] = gam * P[1]
-    U[2] = (gamma-1) * P[2] - gam^2 * w
+    U[2] = (eos.gamma-1) * P[2] - gam^2 * w
     U[3] = P[3] * gam * w
     U[4] = P[4] * gam * w
 end
 
 
-@inline function function_PtoFx(P::AbstractVector{T}, Fx::AbstractVector{T},gamma::T) where T
+@inline function function_PtoFx(P::AbstractVector{T}, Fx::AbstractVector{T},eos::Polytrope{T}) where T
     gam = sqrt(P[3]^2 + P[4]^2 + 1)
-    w = gamma * P[2] + P[1] 
+    w = eos.gamma * P[2] + P[1] 
 
     Fx[1] = P[1] * P[3]
     Fx[2] = - w *P[3] * gam
-    Fx[3] = P[3]^2 * w + (gamma - 1) * P[2]
+    Fx[3] = P[3]^2 * w + (eos.gamma - 1) * P[2]
     Fx[4] = P[3] * P[4] * w 
 end
 
 
-@inline function function_PtoFy(P::AbstractArray{T}, Fy::AbstractArray{T},gamma::T) where T
+@inline function function_PtoFy(P::AbstractArray{T}, Fy::AbstractArray{T},eos::Polytrope{T}) where T
     gam = sqrt(P[3]^2 + P[4]^2 + 1)
-    w = gamma * P[2] + P[1] 
+    w = eos.gamma * P[2] + P[1] 
     Fy[1] = P[1] * P[4]
     Fy[2] = - w *P[4] * gam
     Fy[3] = P[3] * P[4] * w 
-    Fy[4] = P[4]^2 * w + (gamma - 1) * P[2]
+    Fy[4] = P[4]^2 * w + (eos.gamma - 1) * P[2]
 end
 
 
@@ -150,7 +147,7 @@ end
     end
 end
 
-@kernel inbounds = true function function_UtoP(@Const(U::AbstractArray{T}), P::AbstractArray{T},gamma::T,n_iter::Int64,tol::T=1e-10) where T
+@kernel inbounds = true function function_UtoP(@Const(U::AbstractArray{T}), P::AbstractArray{T},eos::Polytrope{T},n_iter::Int64,tol::T=1e-10) where T
     i, j = @index(Global, NTuple)
     il, jl = @index(Local, NTuple)
     i = Int32(i)
@@ -183,10 +180,10 @@ end
     if i > 2 && i < Nx-2 && j>2 && j<Ny-1
         for _ in 1:n_iter
             gam = sqrt(Ploc[3,il,jl]^2 + Ploc[4,il,jl]^2 + 1)
-            w = gamma * Ploc[2,il,jl] + Ploc[1,il,jl] 
+            w = eos.gamma * Ploc[2,il,jl] + Ploc[1,il,jl] 
             
             buff_fun[1] = gam * Ploc[1,il,jl] - Uloc[1,il,jl]
-            buff_fun[2] = (gamma-1) * Ploc[2,il,jl] - gam^2 * w - Uloc[2,il,jl]
+            buff_fun[2] = (eos.gamma-1) * Ploc[2,il,jl] - gam^2 * w - Uloc[2,il,jl]
             buff_fun[3] = Ploc[3,il,jl] * gam * w - Uloc[3,il,jl]
             buff_fun[4] = Ploc[4,il,jl] * gam * w - Uloc[4,il,jl]
 
@@ -196,20 +193,19 @@ end
             buff_jac[13] = Ploc[1,il,jl] * Ploc[4,il,jl] / gam
     
             buff_jac[2] = - gam^2
-            buff_jac[6] = (gamma - 1) - gam ^2 * gamma
+            buff_jac[6] = (eos.gamma - 1) - gam ^2 * eos.gamma
             buff_jac[10] = -2 * Ploc[3,il,jl] * w
             buff_jac[14] = -2 * Ploc[4,il,jl] * w
     
             buff_jac[3] = gam * Ploc[3,il,jl]
-            buff_jac[7] = gam * Ploc[3,il,jl] * gamma
+            buff_jac[7] = gam * Ploc[3,il,jl] * eos.gamma
             buff_jac[11] = (2 * Ploc[3,il,jl]^2 + Ploc[4,il,jl]^2 + 1) / gam * w
             buff_jac[15] = Ploc[3,il,jl] * Ploc[4,il,jl] / gam * w
     
             buff_jac[4] = gam * Ploc[4,il,jl]
-            buff_jac[8] = gam * Ploc[4,il,jl] * gamma
+            buff_jac[8] = gam * Ploc[4,il,jl] * eos.gamma
             buff_jac[12] = Ploc[3,il,jl] * Ploc[4,il,jl] / gam * w
             buff_jac[16] = (2 * Ploc[4,il,jl]^2 + Ploc[3,il,jl] ^ 2 + 1) / gam * w                        
-            #view = @view buff_fun[:,il,jl]
             LU_dec!(buff_jac,buff_fun,buff_out)
 
             if sqrt(buff_out[1]^2 + buff_out[2]^2 + buff_out[3]^2 + buff_out[4]^2) < tol
